@@ -32,10 +32,11 @@ def _build_rgb_array(result: dict) -> np.ndarray:
 
 
 class DetailTab(qt.QWidget):
-    def __init__(self, on_navigate=None, on_back=None):
+    def __init__(self, on_navigate=None, on_back=None, logic=None):
         super().__init__()
         self._on_navigate = on_navigate
         self._on_back = on_back
+        self._logic = logic
         self._full_pixmap = None
         self._results = []
         self._current_idx = 0
@@ -276,8 +277,7 @@ class DetailTab(qt.QWidget):
         if not self._results:
             return
         result = self._results[self._current_idx]
-        import logic
-        logic.revert_manual_correction(result)
+        self._logic.revert_manual_correction(result)
 
         self._cache.pop(self._current_idx, None)
         self._jobs.discard(self._current_idx)
@@ -321,8 +321,7 @@ class DetailTab(qt.QWidget):
         result = self._results[self._current_idx]
         params = self._params_getter() if callable(self._params_getter) else {}
 
-        import logic
-        logic.apply_manual_correction(
+        self._logic.apply_manual_correction(
             result, self._manual_points[0], self._manual_points[1], params
         )
 

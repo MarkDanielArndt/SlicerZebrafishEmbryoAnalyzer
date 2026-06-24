@@ -58,8 +58,10 @@ class ZebrafishAnalysisWidget(ScriptedLoadableModuleWidget):
         from ZebrafishAnalysisLib.dependency_installer import check_and_install
         check_and_install()
 
+        self.logic = ZebrafishAnalysisLogic()
+
         from ZebrafishAnalysisLib.widget import ZebrafishAnalysisMainWidget
-        self._main = ZebrafishAnalysisMainWidget(self.layout)
+        self._main = ZebrafishAnalysisMainWidget(self.layout, logic=self.logic)
 
         qt.QTimer.singleShot(500, self._prewarm_imports)
 
@@ -85,4 +87,29 @@ class ZebrafishAnalysisWidget(ScriptedLoadableModuleWidget):
 
 
 class ZebrafishAnalysisLogic(ScriptedLoadableModuleLogic):
-    pass
+    """Orchestrates analysis requests on behalf of the widget.
+
+    Widget calls these methods; each delegates to the corresponding free
+    function in ZebrafishAnalysisLib.logic so the widget never imports that
+    module directly.  ZebrafishAnalysisCore remains Slicer-independent.
+    """
+
+    def run_analysis(self, image_paths, params, progress_callback=None):
+        from ZebrafishAnalysisLib.logic import analyse_images
+        return analyse_images(image_paths, params, progress_callback)
+
+    def detect_scalebar(self, image_path, label_um=None):
+        from ZebrafishAnalysisLib.logic import detect_scalebar
+        return detect_scalebar(image_path, label_um=label_um)
+
+    def preload_models(self, params):
+        from ZebrafishAnalysisLib.logic import preload_models
+        return preload_models(params)
+
+    def apply_manual_correction(self, result, point1_orig, point2_orig, params=None):
+        from ZebrafishAnalysisLib.logic import apply_manual_correction
+        return apply_manual_correction(result, point1_orig, point2_orig, params)
+
+    def revert_manual_correction(self, result):
+        from ZebrafishAnalysisLib.logic import revert_manual_correction
+        return revert_manual_correction(result)

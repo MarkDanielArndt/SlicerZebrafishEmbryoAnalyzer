@@ -104,7 +104,9 @@ def _run_downloads(models_with_urls, hf_headers, progress_state, cancel_event):
 
 
 class ZebrafishAnalysisMainWidget:
-    def __init__(self, parent_layout):
+    def __init__(self, parent_layout, logic):
+        self._logic = logic
+
         slicer.app.layoutManager().setLayout(
             slicer.vtkMRMLLayoutNode.SlicerLayoutOneUpRedSliceView
         )
@@ -323,6 +325,7 @@ class ZebrafishAnalysisMainWidget:
         self._detail = DetailTab(
             on_navigate=self._navigate_detail,
             on_back=lambda: self._tabs.setCurrentIndex(0),
+            logic=self._logic,
         )
         self._detail._params_getter = self._get_correction_params
         self._tabs.addTab(self._detail, "Detail")
@@ -453,7 +456,6 @@ class ZebrafishAnalysisMainWidget:
         Returns the Thread if started, None if skipped.
         """
         import threading
-        from ZebrafishAnalysisLib.logic import preload_models
         model_data = self._model_combo.currentData
         if not model_data:
             return None
@@ -482,7 +484,7 @@ class ZebrafishAnalysisMainWidget:
             # Best-effort prewarm: a failure here must not block starting analysis,
             # and we must not raise a dialog from a background thread.
             try:
-                preload_models(params)
+                self._logic.preload_models(params)
             except Exception:
                 logging.exception("ZebrafishAnalysis: model preload failed")
 
@@ -631,11 +633,10 @@ class ZebrafishAnalysisMainWidget:
         return True
 
     def _on_detect_scale(self):
-        from ZebrafishAnalysisLib.logic import detect_scalebar
         if not self._image_paths:
             self._scale_status.setText("Load images first.")
             return
-        result = detect_scalebar(self._image_paths[0])
+        result = self._logic.detect_scalebar(self._image_paths[0])
         if result.get("bar_found"):
             um_per_px = result.get("scale_um_per_px")
             bar_px = result.get("bar_length_px")
@@ -666,7 +667,6 @@ class ZebrafishAnalysisMainWidget:
             self._tabs.setCurrentIndex(1)
 
     def _on_apply_scale(self):
-        from ZebrafishAnalysisLib.logic import detect_scalebar
         text = self._bar_um_edit.text.strip()
         if not text or not self._image_paths:
             return
@@ -675,7 +675,7 @@ class ZebrafishAnalysisMainWidget:
         except ValueError:
             self._scale_status.setText("Invalid value — enter a number.")
             return
-        result = detect_scalebar(self._image_paths[0], label_um=label_um)
+        result = self._logic.detect_scalebar(self._image_paths[0], label_um=label_um)
         if result.get("success"):
             self._um_per_px.value = result["scale_um_per_px"]
             self._scale_status.setText(
@@ -683,8 +683,6 @@ class ZebrafishAnalysisMainWidget:
             )
 
     def _on_run(self):
-        from ZebrafishAnalysisLib.logic import analyse_images
-
         if not self._image_paths:
             slicer.util.warningDisplay("No images loaded.")
             return
@@ -772,7 +770,7 @@ class ZebrafishAnalysisMainWidget:
                     self._run_progress.setFormat(f"Image {i} / {total}")
                 slicer.app.processEvents()
 
-            self._results = analyse_images(self._image_paths, params, _set_btn_progress)
+            self._results = self._logic.run_analysis(self._image_paths, params, _set_btn_progress)
             ok = True
         except Exception as exc:
             logging.exception("ZebrafishAnalysis: analysis failed")
