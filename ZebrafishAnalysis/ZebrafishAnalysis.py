@@ -7,6 +7,7 @@ from slicer.ScriptedLoadableModule import (
     ScriptedLoadableModuleWidget,
     ScriptedLoadableModuleLogic,
 )
+from slicer.util import VTKObservationMixin
 
 
 # Slicer puts this module's directory on sys.path, so ZebrafishAnalysisLib and
@@ -51,7 +52,13 @@ class ZebrafishAnalysis(ScriptedLoadableModule):
         )
 
 
-class ZebrafishAnalysisWidget(ScriptedLoadableModuleWidget):
+class ZebrafishAnalysisWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
+    def __init__(self, parent=None):
+        ScriptedLoadableModuleWidget.__init__(self, parent)
+        VTKObservationMixin.__init__(self)
+        self._main = None
+        self._sceneObserversRegistered = False
+
     def setup(self):
         ScriptedLoadableModuleWidget.setup(self)
         _evict_lib_modules()
@@ -64,7 +71,56 @@ class ZebrafishAnalysisWidget(ScriptedLoadableModuleWidget):
         from ZebrafishAnalysisLib.widget import ZebrafishAnalysisMainWidget
         self._main = ZebrafishAnalysisMainWidget(self.layout, logic=self.logic)
 
-        qt.QTimer.singleShot(500, self._prewarm_imports)
+        self._register_scene_observers()
+
+        if hasattr(self, "_prewarm_timer"):
+            self._prewarm_timer.stop()
+        self._prewarm_timer = qt.QTimer()
+        self._prewarm_timer.setSingleShot(True)
+        self._prewarm_timer.setInterval(500)
+        self._prewarm_timer.timeout.connect(self._prewarm_imports)
+        self._prewarm_timer.start()
+
+    def _register_scene_observers(self):
+        """Register MRML scene close observers exactly once per setup."""
+        if self._sceneObserversRegistered:
+            return
+        self.addObserver(
+            slicer.mrmlScene,
+            slicer.mrmlScene.StartCloseEvent,
+            self._on_scene_start_close,
+        )
+        self.addObserver(
+            slicer.mrmlScene,
+            slicer.mrmlScene.EndCloseEvent,
+            self._on_scene_end_close,
+        )
+        self._sceneObserversRegistered = True
+
+    def enter(self):
+        pass
+
+    def exit(self):
+        pass
+
+    def cleanup(self):
+        if hasattr(self, "_prewarm_timer"):
+            self._prewarm_timer.stop()
+        self.removeObservers()
+        self._sceneObserversRegistered = False
+        if self._main is not None:
+            self._main.cleanup()
+
+    def _on_scene_start_close(self, caller=None, event=None):
+        # Invalidate background workers early so they discard results for the
+        # closing scene; the UI reset happens in _on_scene_end_close once the
+        # scene is fully closed.
+        if self._main is not None:
+            self._main._cancel_workers()
+
+    def _on_scene_end_close(self, caller=None, event=None):
+        if self._main is not None:
+            self._main.reset_for_scene_close()
 
     def _prewarm_imports(self):
         import sys
@@ -82,9 +138,6 @@ class ZebrafishAnalysisWidget(ScriptedLoadableModuleWidget):
                 pass
 
         threading.Thread(target=_work, daemon=True).start()
-
-    def cleanup(self):
-        pass
 
 
 class ZebrafishAnalysisLogic(ScriptedLoadableModuleLogic):

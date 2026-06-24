@@ -807,6 +807,32 @@ class ZebrafishAnalysisMainWidget:
         if idx != self._current_detail_idx:
             self._on_gallery_select(idx)
 
+    def _cancel_workers(self):
+        """Invalidate running background workers without touching the UI.
+
+        Replacing self._results breaks the sentinel check in _load_originals_bg.
+        invalidate_cache() increments the generation counter so overlay-rendering
+        workers discard their results.
+        """
+        self._results = []
+        self._detail.invalidate_cache()
+
+    def reset_for_scene_close(self):
+        """Clear all session state after the MRML scene is closed."""
+        self._cancel_workers()
+        self._image_paths = []
+        self._excluded = set()
+        self._queue_list.clear()
+        self._gallery.populate([])
+        self._results_tab.populate([])
+        self._exclude_tab.populate([])
+        self._run_stack.setCurrentIndex(0)
+
+    def cleanup(self):
+        """Stop persistent resources before the widget is torn down."""
+        self._results = []  # stop _load_originals_bg workers
+        self._detail.cleanup()  # invalidates cache + stops poll timer
+
     def _on_results_ready(self):
         self._detail.invalidate_cache()
         self._gallery.populate(self._results)

@@ -187,6 +187,11 @@ class DetailTab(qt.QWidget):
         self._jobs.clear()
         self._pending.clear()
 
+    def cleanup(self):
+        """Invalidate background workers and stop the poll timer."""
+        self.invalidate_cache()
+        self._poll_timer.stop()
+
     def _update_nav_state(self) -> None:
         n = len(self._results)
         self._btn_prev.setEnabled(self._current_idx > 0)

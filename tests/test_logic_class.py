@@ -25,12 +25,28 @@ from unittest.mock import MagicMock
 sys.modules["qt"]  = MagicMock()
 sys.modules["ctk"] = MagicMock()
 sys.modules["slicer"] = MagicMock()
+
+# ScriptedLoadableModuleWidget must be a distinct class (not object itself) and
+# VTKObservationMixin must also be a distinct class, so that
+# class ZebrafishAnalysisWidget(ScriptedLoadableModuleWidget, VTKObservationMixin)
+# can resolve its MRO — Python C3 rejects (object, SomeSubclassOfObject).
+class _BaseWidget:
+    pass
+
+class _VTKObservationMixinStub:
+    def addObserver(self, *a, **kw): pass
+    def removeObservers(self, *a, **kw): pass
+    def hasObserver(self, *a, **kw): return False
+
 sys.modules["slicer.ScriptedLoadableModule"] = types.SimpleNamespace(
     ScriptedLoadableModule=object,
-    ScriptedLoadableModuleWidget=object,
+    ScriptedLoadableModuleWidget=_BaseWidget,
     ScriptedLoadableModuleLogic=object,
     ScriptedLoadableModuleTest=object,
-    VTKObservationMixin=object,
+)
+# VTKObservationMixin lives in slicer.util in the real Slicer runtime.
+sys.modules["slicer.util"] = types.SimpleNamespace(
+    VTKObservationMixin=_VTKObservationMixinStub,
 )
 """
 
