@@ -4,21 +4,11 @@ Detail tab — full-resolution overlay + metrics for the selected image.
 show_result(index, results) — display result at index, preload neighbours.
 """
 
-import os
-import sys
 import threading
-
-# Ensure ZebrafishAnalysisLib is first on sys.path so 'overlay' resolves locally.
-_LIB_DIR = os.path.dirname(os.path.abspath(__file__))
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-elif sys.path[0] != _LIB_DIR:
-    sys.path.remove(_LIB_DIR)
-    sys.path.insert(0, _LIB_DIR)
 
 import qt
 import numpy as np
-from zoom_view import ZoomableImageView
+from ZebrafishAnalysisLib.zoom_view import ZoomableImageView
 
 
 def _numpy_to_qpixmap(rgb_array: np.ndarray) -> "qt.QPixmap":
@@ -35,7 +25,7 @@ def _numpy_to_qpixmap(rgb_array: np.ndarray) -> "qt.QPixmap":
 
 def _build_rgb_array(result: dict) -> np.ndarray:
     """Pure numpy/OpenCV — safe to call from any thread."""
-    from overlay import make_full_overlay
+    from ZebrafishAnalysisLib.overlay import make_full_overlay
     import cv2
     bgr = make_full_overlay(result)
     return cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)

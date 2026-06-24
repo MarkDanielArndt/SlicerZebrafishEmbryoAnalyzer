@@ -1,6 +1,6 @@
 import sys
 
-from zebrafish_analysis.slicer_extension.ZebrafishAnalysis.ZebrafishAnalysisLib.dependency_installer import _is_importable
+from ZebrafishAnalysisLib.dependency_installer import _is_importable
 
 
 def test_is_importable_finds_numpy():

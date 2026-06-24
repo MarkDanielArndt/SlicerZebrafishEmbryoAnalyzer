@@ -4,7 +4,9 @@ import sys
 import textwrap
 
 
-REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+MODULE_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "ZebrafishAnalysis"
+)
 
 
 def _run_in_subprocess(code: str) -> subprocess.CompletedProcess:
@@ -12,7 +14,7 @@ def _run_in_subprocess(code: str) -> subprocess.CompletedProcess:
         [sys.executable, "-c", textwrap.dedent(code)],
         capture_output=True,
         text=True,
-        env={**os.environ, "PYTHONPATH": REPO_ROOT},
+        env={**os.environ, "PYTHONPATH": MODULE_DIR},
     )
 
 
@@ -25,7 +27,7 @@ def test_core_length_imports_without_matplotlib():
         import sys
         sys.modules["matplotlib"] = None
         sys.modules["matplotlib.pyplot"] = None
-        from zebrafish_analysis.core.length import (
+        from ZebrafishAnalysisCore.length import (
             load_model,
             tube_length_border2border,
             classification_curvature,
@@ -35,6 +37,25 @@ def test_core_length_imports_without_matplotlib():
     )
     assert result.returncode == 0, (
         "core.length must import without matplotlib.\n"
+        f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+    )
+    assert "OK" in result.stdout
+
+
+def test_core_modules_import_without_segmentation_models_pytorch():
+    # segmentation_models_pytorch is only available inside Slicer's Python
+    # environment. Both core modules must be importable without it; only the
+    # functions that actually load models should require it at call time.
+    result = _run_in_subprocess(
+        """
+        import sys
+        sys.modules["segmentation_models_pytorch"] = None
+        from ZebrafishAnalysisCore import seg, length
+        print("OK")
+        """
+    )
+    assert result.returncode == 0, (
+        "core modules must import without segmentation_models_pytorch.\n"
         f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
     )
     assert "OK" in result.stdout

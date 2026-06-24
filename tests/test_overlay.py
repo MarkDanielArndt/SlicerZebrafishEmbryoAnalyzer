@@ -2,7 +2,7 @@ import numpy as np
 
 
 def test_make_overlay_returns_rgb_array(synthetic_fish_image, synthetic_fish_mask):
-    from zebrafish_analysis.slicer_extension.ZebrafishAnalysis.ZebrafishAnalysisLib.overlay import make_overlay
+    from ZebrafishAnalysisLib.overlay import make_overlay
 
     result_dict = {
         "original":  synthetic_fish_image,
@@ -24,7 +24,7 @@ def test_make_overlay_returns_rgb_array(synthetic_fish_image, synthetic_fish_mas
 
 
 def test_make_overlay_handles_none_mask(synthetic_fish_image):
-    from zebrafish_analysis.slicer_extension.ZebrafishAnalysis.ZebrafishAnalysisLib.overlay import make_overlay
+    from ZebrafishAnalysisLib.overlay import make_overlay
 
     result_dict = {
         "original":             synthetic_fish_image,

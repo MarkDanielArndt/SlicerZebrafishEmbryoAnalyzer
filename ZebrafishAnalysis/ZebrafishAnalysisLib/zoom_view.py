@@ -5,17 +5,7 @@ ZoomableImageView  — QGraphicsView subclass: zoom, pan, swipe nav, manual dots
 _MinimapOverlay    — picture-in-picture thumbnail with viewport rect
 """
 
-import os
-import sys
 import numpy as np
-
-# Ensure ZebrafishAnalysisLib is first on sys.path (same pattern as detail_tab.py)
-_LIB_DIR = os.path.dirname(os.path.abspath(__file__))
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-elif sys.path[0] != _LIB_DIR:
-    sys.path.remove(_LIB_DIR)
-    sys.path.insert(0, _LIB_DIR)
 
 import qt
 

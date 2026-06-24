@@ -1,7 +1,6 @@
 import numpy as np
 import cv2
 import os
-from segmentation_models_pytorch import Unet
 import torch
 import os
 import numpy as np
@@ -12,13 +11,7 @@ from scipy.spatial.distance import cdist
 from scipy.spatial import cKDTree
 from skimage.morphology import medial_axis
 from skimage.graph import MCP_Geometric
-import torch.nn as nn
-import timm
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 from collections import OrderedDict
-import torch.nn.functional as F
-import torchvision.transforms as T
-from huggingface_hub import hf_hub_download
 
 def compute_eye_metrics(mask_eye, mask_fish=None, spacing=(1.0, 1.0)):
     """
@@ -670,6 +663,9 @@ def apply_mask(original_image, mask):
     return masked_image
 
 def classification_curvature(image, mask, model, use_threshold, threshold):
+    import torch.nn.functional as F
+    import torchvision.transforms as T
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
     masked_image = apply_mask(image, mask)
 
@@ -706,32 +702,37 @@ def classification_curvature(image, mask, model, use_threshold, threshold):
 
     return cropped_image, curvature
 
-class FishClassifier(nn.Module):
-    def __init__(self, num_classes, dense_layer_size, dropout_rate, model_name='resnet101'):
-        super().__init__()
-        self.backbone = timm.create_model(model_name, pretrained=True, num_classes=0)
-        self.flatten = nn.Flatten()
-        # Get backbone output feature size by passing a dummy input
-        with torch.no_grad():
-            dummy_input = torch.zeros(1, 3, 256, 256)
-            dummy_output = self.backbone(dummy_input)
-            backbone_out_features = dummy_output.shape[1] if len(dummy_output.shape) > 1 else dummy_output.shape[0]
-        self.fc1 = nn.Linear(backbone_out_features, dense_layer_size)
-        #self.fc1 = nn.Linear(self.backbone.num_features, dense_layer_size)
-        self.dropout = nn.Dropout(dropout_rate)
-        self.fc2 = nn.Linear(dense_layer_size, num_classes)
-
-    def forward(self, x):
-        x = self.backbone(x)
-        x = self.flatten(x)
-        x = self.fc1(x)
-        x = F.relu(x)
-        x = self.dropout(x)
-        x = self.fc2(x)
-        return x
-
 def load_model():
-    
+    import torch.nn as nn
+    import torch.nn.functional as F
+    import timm
+    from huggingface_hub import hf_hub_download
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    class FishClassifier(nn.Module):
+        def __init__(self, num_classes, dense_layer_size, dropout_rate, model_name='resnet101'):
+            super().__init__()
+            self.backbone = timm.create_model(model_name, pretrained=True, num_classes=0)
+            self.flatten = nn.Flatten()
+            # Get backbone output feature size by passing a dummy input
+            with torch.no_grad():
+                dummy_input = torch.zeros(1, 3, 256, 256)
+                dummy_output = self.backbone(dummy_input)
+                backbone_out_features = dummy_output.shape[1] if len(dummy_output.shape) > 1 else dummy_output.shape[0]
+            self.fc1 = nn.Linear(backbone_out_features, dense_layer_size)
+            #self.fc1 = nn.Linear(self.backbone.num_features, dense_layer_size)
+            self.dropout = nn.Dropout(dropout_rate)
+            self.fc2 = nn.Linear(dense_layer_size, num_classes)
+
+        def forward(self, x):
+            x = self.backbone(x)
+            x = self.flatten(x)
+            x = self.fc1(x)
+            x = F.relu(x)
+            x = self.dropout(x)
+            x = self.fc2(x)
+            return x
+
     _HF_TOKEN = os.getenv("HF_TOKEN", None)
     model_path = hf_hub_download(
         repo_id="markdanielarndt/Classification",

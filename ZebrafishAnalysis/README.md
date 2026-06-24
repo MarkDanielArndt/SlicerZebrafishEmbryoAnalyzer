@@ -20,5 +20,5 @@ Slicer restart required after installation.
 
 ## Adding a model
 
-Edit `zebrafish_analysis/core/models/registry.py` — add one entry to
+Edit `ZebrafishAnalysisCore/models/registry.py` — add one entry to
 `MODEL_REGISTRY` and optionally `MODEL_PRESETS`.

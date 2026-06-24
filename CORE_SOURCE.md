@@ -1,8 +1,12 @@
 # Core source provenance
 
-The `zebrafish_analysis/` package (core + Slicer extension) and the `tests/`
-in this repository were relocated, unmodified, from the development repository
-below. This file records where the code came from.
+The analysis core and Slicer extension in this repository originate, unmodified,
+from the development repository below. This file records where the code came
+from. The snapshot was subsequently relocated into this repository, given a
+clean-install fix, and flattened into a standalone extension layout (core now
+under `ZebrafishAnalysis/ZebrafishAnalysisCore/`, library under
+`ZebrafishAnalysis/ZebrafishAnalysisLib/`). The recorded commit and tree hashes
+below describe the original source paths, not the current layout.
 
 ## Canonical upstream
 
@@ -35,15 +39,16 @@ pr/slicer-extension
 ## Local modifications after vendoring
 
 The SHAs and commit above record the **vendored snapshot** that was copied in.
-Files under `zebrafish_analysis/` and `tests/` may since contain local fixes
-applied on top of that snapshot (e.g. the optional-matplotlib import fix and
-analysis error-handling). The working tree is therefore **no longer
-byte-identical** to commit `0c98df2`; the recorded commit is provenance, not a
-guarantee of the current contents.
+The tree has since diverged through a clean-install fix (optional matplotlib
+import, analysis error handling) and a layout flatten (directory moves and
+updated imports). The working tree is therefore **no longer byte-identical** to
+commit `0c98df2`; the recorded commit is provenance of the original source, not
+a description of the current contents.
 
 ## Notes
 
-Relocation only — runtime behavior is preserved. Imports, `sys.path` handling,
-CMake packaging, dependency installation, and model download behavior are
-unchanged from the development commit. The `ZebrafishAnalysis` module name and
-the nested directory structure are intentionally not yet flattened or renamed.
+Runtime behavior is preserved across the relocation and flatten: analysis
+algorithms, model URLs and cache behavior, dependency installation, NumPy
+pinning, and the `ZebrafishAnalysis` module name are unchanged. Only the
+directory layout and import paths were updated. Repository/Extension Index URLs
+are handled separately.

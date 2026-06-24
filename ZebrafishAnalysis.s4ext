@@ -2,7 +2,7 @@ scm git
 scmurl https://github.com/JonaRichter/Zebrafish_Analysis
 scmrevision main
 depends NA
-build_subdirectory zebrafish_analysis/slicer_extension
+build_subdirectory .
 homepage https://github.com/JonaRichter/Zebrafish_Analysis
 iconurl https://raw.githubusercontent.com/JonaRichter/Zebrafish_Analysis/main/zebrafish_analysis/slicer_extension/ZebrafishAnalysis/Resources/Icons/ZebrafishAnalysis.png
 category Quantification

@@ -10,7 +10,7 @@ def line_mask():
 
 
 def test_tube_length_returns_positive(line_mask):
-    from zebrafish_analysis.core.length import tube_length_border2border
+    from ZebrafishAnalysisCore.length import tube_length_border2border
     result = tube_length_border2border(
         line_mask,
         spacing=(1.0, 1.0),
@@ -25,7 +25,7 @@ def test_tube_length_returns_positive(line_mask):
 
 
 def test_tube_length_spacing_scales_result(line_mask):
-    from zebrafish_analysis.core.length import tube_length_border2border
+    from ZebrafishAnalysisCore.length import tube_length_border2border
     r1 = tube_length_border2border(
         line_mask, spacing=(1.0, 1.0),
         return_path=True, return_straight_line=True,
@@ -41,7 +41,7 @@ def test_tube_length_spacing_scales_result(line_mask):
 
 
 def test_tube_length_empty_mask_does_not_crash():
-    from zebrafish_analysis.core.length import tube_length_border2border
+    from ZebrafishAnalysisCore.length import tube_length_border2border
     empty = np.zeros((64, 64), dtype=bool)
     try:
         result = tube_length_border2border(
@@ -56,7 +56,7 @@ def test_tube_length_empty_mask_does_not_crash():
 
 
 def test_tube_length_wider_mask_is_longer():
-    from zebrafish_analysis.core.length import tube_length_border2border
+    from ZebrafishAnalysisCore.length import tube_length_border2border
     short = np.zeros((20, 100), dtype=bool)
     short[8:12, 5:95] = True
     long_ = np.zeros((20, 256), dtype=bool)
@@ -68,7 +68,7 @@ def test_tube_length_wider_mask_is_longer():
 
 
 def test_tube_length_returns_tuple():
-    from zebrafish_analysis.core.length import tube_length_border2border
+    from ZebrafishAnalysisCore.length import tube_length_border2border
     mask = np.zeros((20, 100), dtype=bool)
     mask[8:12, 5:95] = True
     result = tube_length_border2border(mask, spacing=(1.0, 1.0))

@@ -6,17 +6,6 @@ populate(results)  — rebuild grid from result list.
 update_thumb(index, rgb_array) — update single thumbnail in-place.
 """
 
-import os
-import sys
-
-# Ensure ZebrafishAnalysisLib is first on sys.path so 'overlay' resolves locally.
-_LIB_DIR = os.path.dirname(os.path.abspath(__file__))
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-elif sys.path[0] != _LIB_DIR:
-    sys.path.remove(_LIB_DIR)
-    sys.path.insert(0, _LIB_DIR)
-
 import qt
 import numpy as np
 
@@ -80,7 +69,7 @@ class GalleryTab(qt.QWidget):
         self._cells = []
         self._n_cols = 0
 
-        from overlay import make_overlay
+        from ZebrafishAnalysisLib.overlay import make_overlay
 
         for i in range(len(results)):
             r = results[i]
@@ -136,7 +125,7 @@ class GalleryTab(qt.QWidget):
         """Update a single thumbnail — builds thumb from full-res rgb on main thread."""
         if index >= len(self._thumbnails):
             return
-        from overlay import make_overlay
+        from ZebrafishAnalysisLib.overlay import make_overlay
         stub = {"original": rgb_array, "mask": None, "length": None, "error": None}
         thumb_rgb = make_overlay(stub, thumbnail_size=THUMB_SIZE)
         self.update_thumb_prebuilt(index, thumb_rgb)

@@ -14,7 +14,7 @@ RESULTS = [
 
 
 def test_export_excel_creates_file(tmp_path):
-    from zebrafish_analysis.slicer_extension.ZebrafishAnalysis.ZebrafishAnalysisLib.export import export_excel
+    from ZebrafishAnalysisLib.export import export_excel
     out = str(tmp_path / "results.xlsx")
     export_excel(RESULTS, out)
     assert os.path.exists(out)
@@ -22,7 +22,7 @@ def test_export_excel_creates_file(tmp_path):
 
 
 def test_export_csv_creates_file(tmp_path):
-    from zebrafish_analysis.slicer_extension.ZebrafishAnalysis.ZebrafishAnalysisLib.export import export_csv
+    from ZebrafishAnalysisLib.export import export_csv
     out = str(tmp_path / "results.csv")
     export_csv(RESULTS, out)
     assert os.path.exists(out)
@@ -32,7 +32,7 @@ def test_export_csv_creates_file(tmp_path):
 
 def test_export_excel_includes_error_column(tmp_path):
     import openpyxl
-    from zebrafish_analysis.slicer_extension.ZebrafishAnalysis.ZebrafishAnalysisLib.export import export_excel
+    from ZebrafishAnalysisLib.export import export_excel
     out = str(tmp_path / "results.xlsx")
     export_excel(RESULTS, out)
     wb = openpyxl.load_workbook(out)
@@ -41,7 +41,7 @@ def test_export_excel_includes_error_column(tmp_path):
 
 
 def test_export_filtered_skips_excluded(tmp_path):
-    from zebrafish_analysis.slicer_extension.ZebrafishAnalysis.ZebrafishAnalysisLib.export import export_excel
+    from ZebrafishAnalysisLib.export import export_excel
     import openpyxl
     out = str(tmp_path / "filtered.xlsx")
     filtered = [r for r in RESULTS if r["error"] is None]

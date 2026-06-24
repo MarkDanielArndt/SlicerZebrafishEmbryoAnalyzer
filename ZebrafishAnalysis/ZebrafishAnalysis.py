@@ -1,4 +1,3 @@
-import os
 import sys
 
 import qt
@@ -10,23 +9,20 @@ from slicer.ScriptedLoadableModule import (
 )
 
 
-def _add_lib_to_path():
-    lib_dir = os.path.join(os.path.dirname(__file__), "ZebrafishAnalysisLib")
-    if lib_dir not in sys.path:
-        sys.path.insert(0, lib_dir)
-
-    repo_root = os.path.dirname(
-        os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-    )
-    if repo_root not in sys.path:
-        sys.path.insert(0, repo_root)
-
-
-_add_lib_to_path()
+# Slicer puts this module's directory on sys.path, so ZebrafishAnalysisLib and
+# ZebrafishAnalysisCore import as normal packages — no path manipulation needed.
 
 _LIB_MODULES = (
-    "widget", "gallery_tab", "detail_tab", "results_tab", "exclude_tab",
-    "logic", "overlay", "export", "dependency_installer", "zoom_view",
+    "ZebrafishAnalysisLib.widget",
+    "ZebrafishAnalysisLib.gallery_tab",
+    "ZebrafishAnalysisLib.detail_tab",
+    "ZebrafishAnalysisLib.results_tab",
+    "ZebrafishAnalysisLib.exclude_tab",
+    "ZebrafishAnalysisLib.logic",
+    "ZebrafishAnalysisLib.overlay",
+    "ZebrafishAnalysisLib.export",
+    "ZebrafishAnalysisLib.dependency_installer",
+    "ZebrafishAnalysisLib.zoom_view",
 )
 
 def _evict_lib_modules():
@@ -59,10 +55,10 @@ class ZebrafishAnalysisWidget(ScriptedLoadableModuleWidget):
         ScriptedLoadableModuleWidget.setup(self)
         _evict_lib_modules()
 
-        from dependency_installer import check_and_install
+        from ZebrafishAnalysisLib.dependency_installer import check_and_install
         check_and_install()
 
-        from widget import ZebrafishAnalysisMainWidget
+        from ZebrafishAnalysisLib.widget import ZebrafishAnalysisMainWidget
         self._main = ZebrafishAnalysisMainWidget(self.layout)
 
         qt.QTimer.singleShot(500, self._prewarm_imports)
@@ -77,8 +73,8 @@ class ZebrafishAnalysisWidget(ScriptedLoadableModuleWidget):
 
         def _work():
             try:
-                from zebrafish_analysis.core.seg import segmentation_pipeline    # noqa: F401
-                from zebrafish_analysis.core.length import load_model             # noqa: F401
+                from ZebrafishAnalysisCore.seg import segmentation_pipeline    # noqa: F401
+                from ZebrafishAnalysisCore.length import load_model             # noqa: F401
             except Exception:
                 pass
 

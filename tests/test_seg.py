@@ -1,7 +1,27 @@
+import sys
 import numpy as np
 import pytest
 from unittest.mock import patch, MagicMock
 from PIL import Image
+
+
+@pytest.fixture(autouse=True)
+def _stub_slicer_ml_packages():
+    """Stub ML packages that live only in Slicer's Python environment.
+
+    These stubs make `_load_unet_model` patchable without a real Slicer install.
+    They are installed before each test and removed afterwards so the rest of
+    the test suite never sees fake modules.
+    """
+    pkgs = ["segmentation_models_pytorch", "huggingface_hub"]
+    added = []
+    for pkg in pkgs:
+        if pkg not in sys.modules:
+            sys.modules[pkg] = MagicMock()
+            added.append(pkg)
+    yield
+    for pkg in added:
+        del sys.modules[pkg]
 
 
 def _make_dummy_model():
@@ -25,10 +45,10 @@ def test_segmentation_pipeline_returns_three_tuple(synthetic_fish_image, tmp_pat
 
     dummy_model = _make_dummy_model()
 
-    with patch("zebrafish_analysis.core.seg.hf_hub_download") as mock_dl, \
-         patch("zebrafish_analysis.core.seg.torch") as mock_torch, \
-         patch("zebrafish_analysis.core.seg.Unet") as mock_unet, \
-         patch("zebrafish_analysis.core.seg.segment_fish") as mock_seg:
+    with patch("huggingface_hub.hf_hub_download") as mock_dl, \
+         patch("ZebrafishAnalysisCore.seg.torch") as mock_torch, \
+         patch("segmentation_models_pytorch.Unet") as mock_unet, \
+         patch("ZebrafishAnalysisCore.seg.segment_fish") as mock_seg:
 
         mock_dl.return_value = "/fake/path/model.pth"
         mock_torch.load.return_value = {}
@@ -42,7 +62,7 @@ def test_segmentation_pipeline_returns_three_tuple(synthetic_fish_image, tmp_pat
         confidence = np.zeros((256, 256), dtype=np.uint8)
         mock_seg.return_value = (pil_mask, confidence)
 
-        from zebrafish_analysis.core.seg import segmentation_pipeline
+        from ZebrafishAnalysisCore.seg import segmentation_pipeline
         result = segmentation_pipeline(
             folder_path=str(tmp_path),
             include_eyes=False,
@@ -58,7 +78,7 @@ def test_segmentation_pipeline_accepts_local_model_paths():
     # Slicer passes pre-downloaded weights as body_model_path/eye_model_path.
     # Regression: body_model_path was missing from the signature.
     import inspect
-    from zebrafish_analysis.core.seg import segmentation_pipeline
+    from ZebrafishAnalysisCore.seg import segmentation_pipeline
 
     params = inspect.signature(segmentation_pipeline).parameters
     assert "body_model_path" in params
@@ -77,10 +97,10 @@ def test_segmentation_pipeline_sorted_order(tmp_path):
     pil_mask = Image.fromarray(np.zeros((256, 256), dtype=np.uint8))
     confidence = np.zeros((256, 256), dtype=np.uint8)
 
-    with patch("zebrafish_analysis.core.seg.hf_hub_download"), \
-         patch("zebrafish_analysis.core.seg.torch") as mock_torch, \
-         patch("zebrafish_analysis.core.seg.Unet") as mock_unet, \
-         patch("zebrafish_analysis.core.seg.segment_fish") as mock_seg:
+    with patch("huggingface_hub.hf_hub_download"), \
+         patch("ZebrafishAnalysisCore.seg.torch") as mock_torch, \
+         patch("segmentation_models_pytorch.Unet") as mock_unet, \
+         patch("ZebrafishAnalysisCore.seg.segment_fish") as mock_seg:
 
         mock_torch.no_grad.return_value.__enter__ = lambda s: s
         mock_torch.no_grad.return_value.__exit__ = MagicMock(return_value=False)
@@ -88,7 +108,7 @@ def test_segmentation_pipeline_sorted_order(tmp_path):
         mock_unet.return_value = dummy_model
         mock_seg.return_value = (pil_mask, confidence)
 
-        from zebrafish_analysis.core.seg import segmentation_pipeline
+        from ZebrafishAnalysisCore.seg import segmentation_pipeline
         originals, masks, growns = segmentation_pipeline(
             folder_path=str(tmp_path),
             include_eyes=False,
@@ -111,10 +131,10 @@ def test_segmentation_pipeline_include_eyes_returns_four_tuple(tmp_path):
     pil_mask = Image.fromarray(np.zeros((256, 256), dtype=np.uint8))
     confidence = np.zeros((256, 256), dtype=np.uint8)
 
-    with patch("zebrafish_analysis.core.seg.hf_hub_download"), \
-         patch("zebrafish_analysis.core.seg.torch") as mock_torch, \
-         patch("zebrafish_analysis.core.seg.Unet") as mock_unet, \
-         patch("zebrafish_analysis.core.seg.segment_fish") as mock_seg:
+    with patch("huggingface_hub.hf_hub_download"), \
+         patch("ZebrafishAnalysisCore.seg.torch") as mock_torch, \
+         patch("segmentation_models_pytorch.Unet") as mock_unet, \
+         patch("ZebrafishAnalysisCore.seg.segment_fish") as mock_seg:
 
         mock_torch.no_grad.return_value.__enter__ = lambda s: s
         mock_torch.no_grad.return_value.__exit__ = MagicMock(return_value=False)
@@ -122,7 +142,7 @@ def test_segmentation_pipeline_include_eyes_returns_four_tuple(tmp_path):
         mock_unet.return_value = dummy_model
         mock_seg.return_value = (pil_mask, confidence)
 
-        from zebrafish_analysis.core.seg import segmentation_pipeline
+        from ZebrafishAnalysisCore.seg import segmentation_pipeline
         result = segmentation_pipeline(
             folder_path=str(tmp_path),
             include_eyes=True,
@@ -137,14 +157,14 @@ def test_segmentation_pipeline_include_eyes_returns_four_tuple(tmp_path):
 def test_segmentation_pipeline_model_load_failure_raises(tmp_path):
     """RuntimeError is raised when the body model cannot be loaded."""
     import cv2
-    import zebrafish_analysis.core.seg as seg_mod
+    import ZebrafishAnalysisCore.seg as seg_mod
 
     cv2.imwrite(str(tmp_path / "fish.png"), np.zeros((64, 64, 3), dtype=np.uint8))
 
     # Patch _load_unet_model directly — logic.py may have monkey-patched it at import
     # time, so patching hf_hub_download would be bypassed by the caching wrapper.
     with patch.object(seg_mod, "_load_unet_model", return_value=None):
-        from zebrafish_analysis.core.seg import segmentation_pipeline
+        from ZebrafishAnalysisCore.seg import segmentation_pipeline
         with pytest.raises(RuntimeError):
             segmentation_pipeline(
                 folder_path=str(tmp_path),

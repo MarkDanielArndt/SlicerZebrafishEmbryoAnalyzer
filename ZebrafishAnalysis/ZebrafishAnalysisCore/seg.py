@@ -3,8 +3,6 @@ import os
 import cv2
 import numpy as np
 import torch
-from segmentation_models_pytorch import Unet
-from huggingface_hub import hf_hub_download
 
 _UNET_CACHE = {}  # lazy-loaded cache keyed by (filename_or_path, encoder_name)
 
@@ -18,6 +16,8 @@ def _load_unet_model(model_path=None, repo_id=None, filename=None, label="model"
         print(f"{label.capitalize()} served from cache.")
         return _UNET_CACHE[cache_key]
 
+    from segmentation_models_pytorch import Unet
+    from huggingface_hub import hf_hub_download
     model = Unet(encoder_name=encoder_name, encoder_weights="imagenet", in_channels=3, classes=1)
     resolved_path = None
 

@@ -10,17 +10,6 @@ import logging
 import os
 import sys
 
-# Put our lib dir first and evict any cached Slicer modules with the same name.
-_LIB_DIR = os.path.dirname(os.path.abspath(__file__))
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-elif sys.path[0] != _LIB_DIR:
-    sys.path.remove(_LIB_DIR)
-    sys.path.insert(0, _LIB_DIR)
-
-for _m in ("logic", "overlay", "export"):
-    sys.modules.pop(_m, None)
-
 import qt
 import ctk
 import slicer
@@ -326,11 +315,11 @@ class ZebrafishAnalysisMainWidget:
         self._tabs = qt.QTabWidget()
         splitter.addWidget(self._tabs)
 
-        from gallery_tab import GalleryTab
+        from ZebrafishAnalysisLib.gallery_tab import GalleryTab
         self._gallery = GalleryTab(on_select=self._on_gallery_select)
         self._tabs.addTab(self._gallery, "Gallery")
 
-        from detail_tab import DetailTab
+        from ZebrafishAnalysisLib.detail_tab import DetailTab
         self._detail = DetailTab(
             on_navigate=self._navigate_detail,
             on_back=lambda: self._tabs.setCurrentIndex(0),
@@ -338,11 +327,11 @@ class ZebrafishAnalysisMainWidget:
         self._detail._params_getter = self._get_correction_params
         self._tabs.addTab(self._detail, "Detail")
 
-        from results_tab import ResultsTab
+        from ZebrafishAnalysisLib.results_tab import ResultsTab
         self._results_tab = ResultsTab()
         self._tabs.addTab(self._results_tab, "Results")
 
-        from exclude_tab import ExcludeTab
+        from ZebrafishAnalysisLib.exclude_tab import ExcludeTab
         self._exclude_tab = ExcludeTab(on_change=lambda exc: setattr(self, "_excluded", exc))
         self._tabs.addTab(self._exclude_tab, "Exclude")
 
@@ -425,7 +414,7 @@ class ZebrafishAnalysisMainWidget:
         done_count = [0]  # mutable box so _work can update it
 
         def _work():
-            from gallery_tab import THUMB_SIZE as _THUMB_SIZE
+            from ZebrafishAnalysisLib.gallery_tab import THUMB_SIZE as _THUMB_SIZE
             for i, p in enumerate(paths):
                 if stubs is not self._results:
                     return
@@ -464,7 +453,7 @@ class ZebrafishAnalysisMainWidget:
         Returns the Thread if started, None if skipped.
         """
         import threading
-        from logic import preload_models
+        from ZebrafishAnalysisLib.logic import preload_models
         model_data = self._model_combo.currentData
         if not model_data:
             return None
@@ -642,7 +631,7 @@ class ZebrafishAnalysisMainWidget:
         return True
 
     def _on_detect_scale(self):
-        from logic import detect_scalebar
+        from ZebrafishAnalysisLib.logic import detect_scalebar
         if not self._image_paths:
             self._scale_status.setText("Load images first.")
             return
@@ -677,7 +666,7 @@ class ZebrafishAnalysisMainWidget:
             self._tabs.setCurrentIndex(1)
 
     def _on_apply_scale(self):
-        from logic import detect_scalebar
+        from ZebrafishAnalysisLib.logic import detect_scalebar
         text = self._bar_um_edit.text.strip()
         if not text or not self._image_paths:
             return
@@ -694,7 +683,7 @@ class ZebrafishAnalysisMainWidget:
             )
 
     def _on_run(self):
-        from logic import analyse_images
+        from ZebrafishAnalysisLib.logic import analyse_images
 
         if not self._image_paths:
             slicer.util.warningDisplay("No images loaded.")
@@ -827,7 +816,7 @@ class ZebrafishAnalysisMainWidget:
             slicer.util.warningDisplay(f"Errors in {len(errors)} image(s):\n\n{msg}")
 
     def _on_export_excel(self):
-        from export import export_excel
+        from ZebrafishAnalysisLib.export import export_excel
         if not self._results:
             slicer.util.warningDisplay("No results to export. Run analysis first.")
             return
@@ -843,7 +832,7 @@ class ZebrafishAnalysisMainWidget:
                 slicer.util.errorDisplay(f"Export failed:\n{e}")
 
     def _on_export_csv(self):
-        from export import export_csv
+        from ZebrafishAnalysisLib.export import export_csv
         if not self._results:
             slicer.util.warningDisplay("No results to export. Run analysis first.")
             return

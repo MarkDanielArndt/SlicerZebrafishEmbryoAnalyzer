@@ -31,10 +31,10 @@ def test_analyse_images_returns_one_result_per_image(tmp_path, synthetic_fish_im
     dummy_mask = np.zeros((256, 256), dtype=np.uint8)
     dummy_grown = dummy_mask.copy()
 
-    with patch("zebrafish_analysis.core.seg.segmentation_pipeline") as mock_pipeline, \
-         patch("zebrafish_analysis.core.length.load_model") as mock_load, \
-         patch("zebrafish_analysis.core.length.tube_length_border2border") as mock_length, \
-         patch("zebrafish_analysis.core.length.classification_curvature") as mock_curv:
+    with patch("ZebrafishAnalysisCore.seg.segmentation_pipeline") as mock_pipeline, \
+         patch("ZebrafishAnalysisCore.length.load_model") as mock_load, \
+         patch("ZebrafishAnalysisCore.length.tube_length_border2border") as mock_length, \
+         patch("ZebrafishAnalysisCore.length.classification_curvature") as mock_curv:
 
         mock_pipeline.return_value = (
             [synthetic_fish_image[:, :, ::-1]],
@@ -47,7 +47,7 @@ def test_analyse_images_returns_one_result_per_image(tmp_path, synthetic_fish_im
                                     ((64, 128), (192, 128)))
         mock_curv.return_value = (MagicMock(), MagicMock(item=lambda: 2))
 
-        from zebrafish_analysis.slicer_extension.ZebrafishAnalysis.ZebrafishAnalysisLib.logic import analyse_images
+        from ZebrafishAnalysisLib.logic import analyse_images
         results = analyse_images(
             [img_path],
             {"length": True, "curvature": True, "ratio": True,
@@ -67,9 +67,9 @@ def test_analyse_images_error_per_image_does_not_crash(tmp_path, synthetic_fish_
 
     dummy_mask = np.zeros((256, 256), dtype=np.uint8)
 
-    with patch("zebrafish_analysis.core.seg.segmentation_pipeline") as mock_pipeline, \
-         patch("zebrafish_analysis.core.length.load_model"), \
-         patch("zebrafish_analysis.core.length.tube_length_border2border") as mock_length:
+    with patch("ZebrafishAnalysisCore.seg.segmentation_pipeline") as mock_pipeline, \
+         patch("ZebrafishAnalysisCore.length.load_model"), \
+         patch("ZebrafishAnalysisCore.length.tube_length_border2border") as mock_length:
 
         mock_pipeline.return_value = (
             [synthetic_fish_image[:, :, ::-1]],
@@ -78,7 +78,7 @@ def test_analyse_images_error_per_image_does_not_crash(tmp_path, synthetic_fish_
         )
         mock_length.side_effect = RuntimeError("synthetic error")
 
-        from zebrafish_analysis.slicer_extension.ZebrafishAnalysis.ZebrafishAnalysisLib.logic import analyse_images
+        from ZebrafishAnalysisLib.logic import analyse_images
         results = analyse_images(
             [p1],
             {"length": True, "curvature": False, "ratio": False,
