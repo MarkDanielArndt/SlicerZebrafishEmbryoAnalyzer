@@ -977,6 +977,63 @@ class ZebrafishAnalysisMainWidget:
         finally:
             node.EndModify(wasModified)
 
+    def refresh_dependency_status(self):
+        ml = self._logic.dependency_status()  # {"torch": bool, "cv2": bool, ...}
+        missing_ml = [k for k, v in ml.items() if not v]
+
+        # Run button gate: ML packages only
+        run_ok = not bool(missing_ml)
+        self._btn_run.setEnabled(run_ok)
+        if not run_ok:
+            self._btn_run.setToolTip("Install missing ML dependencies first.")
+        else:
+            self._btn_run.setToolTip("")
+
+    def prompt_install_if_missing(self):
+        """Show a startup popup if required dependencies are absent. Guarded by testingEnabled."""
+        try:
+            import slicer
+            if slicer.app.testingEnabled():
+                return
+        except ImportError:
+            return
+
+        from ZebrafishAnalysisLib import dependency_installer
+        missing = dependency_installer.get_missing_packages()
+        if not any(missing.values()):
+            return
+
+        # Build item list
+        items = []
+        if missing["torch"]:
+            items.append("torch + torchvision (CPU build from pytorch.org)")
+        items.extend(missing["general"])
+        if missing["numpy_pin"]:
+            items.append("numpy<2 (pin for PyTorch compatibility)")
+
+        import qt
+        msg = qt.QMessageBox()
+        msg.setWindowTitle("ZebrafishAnalysis — Dependencies Required")
+        msg.setText(
+            "The following packages are required and not yet installed:\n\n"
+            + "\n".join(f"  • {i}" for i in items)
+            + "\n\nInstallation requires an internet connection and takes a few minutes. "
+            "Slicer must be restarted afterwards.\n\nInstall now?"
+        )
+        msg.setStandardButtons(qt.QMessageBox.Yes | qt.QMessageBox.No)
+        msg.setDefaultButton(qt.QMessageBox.Yes)
+        if msg.exec_() != qt.QMessageBox.Yes:
+            return
+
+        try:
+            dependency_installer.install_packages(missing)
+        except Exception as exc:
+            import logging
+            logging.exception("Dependency install failed: %s", exc)
+            slicer.util.errorDisplay(f"Installation failed: {exc}")
+
+        self.refresh_dependency_status()
+
     def _cancel_workers(self):
         """Invalidate running background workers without touching the UI.
 

@@ -66,14 +66,20 @@ class ZebrafishAnalysisWidget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         ScriptedLoadableModuleWidget.setup(self)
         _evict_lib_modules()
 
-        from ZebrafishAnalysisLib.dependency_installer import check_and_install
-        check_and_install()
-
         self.logic = ZebrafishAnalysisLogic()
 
         from ZebrafishAnalysisLib.widget import ZebrafishAnalysisMainWidget
         self._main = ZebrafishAnalysisMainWidget(self.layout, logic=self.logic)
         self._main._on_settings_changed = self._on_settings_changed
+        self._main.refresh_dependency_status()
+
+        if hasattr(self, "_dep_check_timer"):
+            self._dep_check_timer.stop()
+        self._dep_check_timer = qt.QTimer()
+        self._dep_check_timer.setSingleShot(True)
+        self._dep_check_timer.setInterval(200)
+        self._dep_check_timer.timeout.connect(self._check_deps_on_start)
+        self._dep_check_timer.start()
 
         self._register_scene_observers()
         self.initializeParameterNode()
@@ -114,10 +120,16 @@ class ZebrafishAnalysisWidget(ScriptedLoadableModuleWidget, VTKObservationMixin)
     def exit(self):
         pass
 
+    def _check_deps_on_start(self):
+        if self._main is not None:
+            self._main.prompt_install_if_missing()
+
     def cleanup(self):
         self.setParameterNode(None)
         if hasattr(self, "_prewarm_timer"):
             self._prewarm_timer.stop()
+        if hasattr(self, "_dep_check_timer"):
+            self._dep_check_timer.stop()
         self.removeObservers()
         self._sceneObserversRegistered = False
         if self._main is not None:
@@ -222,6 +234,9 @@ class ZebrafishAnalysisWidget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         self.initializeParameterNode()
 
     def _prewarm_imports(self):
+        from ZebrafishAnalysisLib.dependency_installer import get_missing_packages
+        if get_missing_packages()["torch"]:
+            return  # torch absent — skip thread to avoid ImportError log noise
         import sys
         import threading
         # Skip on fresh install — torch not yet imported, first import takes several
@@ -246,6 +261,14 @@ class ZebrafishAnalysisLogic(ScriptedLoadableModuleLogic):
     function in ZebrafishAnalysisLib.logic so the widget never imports that
     module directly.  ZebrafishAnalysisCore remains Slicer-independent.
     """
+
+    def dependency_status(self) -> dict:
+        """Return availability of optional ML/vision dependencies.
+
+        Thin wrapper so widget.py never imports ZebrafishAnalysisLib.logic directly.
+        """
+        from ZebrafishAnalysisLib.logic import dependency_status as _ds
+        return _ds()
 
     def run_analysis(self, image_paths, params, progress_callback=None):
         import math

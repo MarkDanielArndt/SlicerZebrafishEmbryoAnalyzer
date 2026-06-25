@@ -240,10 +240,17 @@ def test_logic_lib_imports_without_slicer():
     assert callable(lg.revert_manual_correction)
 
 
-def test_check_and_install_noop_outside_slicer():
-    """check_and_install must return without installing anything outside Slicer."""
-    from ZebrafishAnalysisLib.dependency_installer import check_and_install
-    check_and_install()  # must not raise, must not call pip
+def test_get_missing_packages_safe_outside_slicer():
+    """get_missing_packages must return a valid dict without raising outside Slicer."""
+    from ZebrafishAnalysisLib.dependency_installer import get_missing_packages
+    result = get_missing_packages()
+    assert isinstance(result, dict)
+    assert "torch" in result
+    assert "general" in result
+    assert "numpy_pin" in result
+    assert isinstance(result["torch"], list)
+    assert isinstance(result["general"], list)
+    assert isinstance(result["numpy_pin"], list)
 
 
 # ---------------------------------------------------------------------------
