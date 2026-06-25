@@ -6,8 +6,17 @@ _UNET_CACHE = {}  # lazy-loaded cache keyed by (filename_or_path, encoder_name)
 
 def _load_unet_model(model_path=None, repo_id=None, filename=None, label="model", revision="main", force_download=False, encoder_name="vgg16"):
     """
-    Load a binary Unet model from a local path or from Hugging Face Hub.
+    Load a binary Unet model from a local path.
+
+    ``model_path`` must point to an existing local file.  The ``repo_id``,
+    ``filename``, ``revision``, and ``force_download`` parameters are accepted
+    for backward-compatible call sites but are ignored — Hugging Face Hub
+    downloads have been removed from the core layer.  Use
+    ZebrafishAnalysisLib.model_downloader to download model files before
+    calling this function.
+
     Returns the model instance when successful, otherwise None.
+    Raises RuntimeError when no usable local path is found.
     """
     cache_key = (model_path or filename, encoder_name)
     if cache_key in _UNET_CACHE:
@@ -16,29 +25,19 @@ def _load_unet_model(model_path=None, repo_id=None, filename=None, label="model"
 
     import torch
     from segmentation_models_pytorch import Unet
-    from huggingface_hub import hf_hub_download
     model = Unet(encoder_name=encoder_name, encoder_weights="imagenet", in_channels=3, classes=1)
     resolved_path = None
 
     if model_path and os.path.exists(model_path):
         resolved_path = model_path
-    elif repo_id and filename:
-        try:
-            resolved_path = hf_hub_download(
-                repo_id=repo_id,
-                filename=filename,
-                revision=revision,
-                force_download=force_download,
-            )
-        except Exception as exc:
-            print(f"Could not download {label} from Hugging Face Hub: {exc}")
-            return None
     elif filename and os.path.exists(filename):
         resolved_path = filename
 
     if not resolved_path:
-        print(f"{label.capitalize()} not found.")
-        return None
+        raise RuntimeError(
+            f"{label.capitalize()} not found at {model_path!r}. "
+            "Download models via ZebrafishAnalysisLib.model_downloader before running analysis."
+        )
 
     try:
         model.load_state_dict(torch.load(resolved_path, map_location=torch.device('cpu')))

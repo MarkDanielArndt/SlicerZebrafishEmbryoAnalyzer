@@ -1,5 +1,6 @@
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 import pytest
@@ -25,3 +26,23 @@ def synthetic_fish_mask():
     import cv2
     cv2.ellipse(mask, (128, 128), (100, 30), 0, 0, 360, 255, -1)
     return mask
+
+
+@pytest.fixture
+def mock_model_paths(tmp_path):
+    """Patch get_cached_path so existence checks in logic.py pass without real models.
+
+    Returns a dict mapping entry id -> Path so tests can inspect paths if needed.
+    """
+    created: dict = {}
+
+    def fake_get_cached_path(entry):
+        p = tmp_path / entry["filename"]
+        if not p.exists():
+            p.write_bytes(b"dummy weights")
+        created[entry["id"]] = p
+        return p
+
+    with patch("ZebrafishAnalysisLib.model_manifest.get_cached_path",
+               side_effect=fake_get_cached_path):
+        yield created

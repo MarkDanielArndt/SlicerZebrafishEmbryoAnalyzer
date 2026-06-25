@@ -31,7 +31,7 @@ _EXPECTED_RESULT_KEYS = frozenset({
 # Result schema — observable contract of analyse_images
 # ---------------------------------------------------------------------------
 
-def test_result_schema_all_keys_present(tmp_path, synthetic_fish_image):
+def test_result_schema_all_keys_present(tmp_path, synthetic_fish_image, mock_model_paths):
     """Every result dict returned by analyse_images must contain all required keys."""
     import cv2
     from ZebrafishAnalysisLib.logic import analyse_images
@@ -67,7 +67,7 @@ def test_result_schema_all_keys_present(tmp_path, synthetic_fish_image):
     assert not missing, f"result dict missing required keys: {missing}"
 
 
-def test_result_schema_preserved_on_per_image_error(tmp_path, synthetic_fish_image):
+def test_result_schema_preserved_on_per_image_error(tmp_path, synthetic_fish_image, mock_model_paths):
     """A per-image error must still produce a result dict with all required keys."""
     import cv2
     from ZebrafishAnalysisLib.logic import analyse_images
@@ -97,7 +97,7 @@ def test_result_schema_preserved_on_per_image_error(tmp_path, synthetic_fish_ima
     assert r["error"] is not None
 
 
-def test_result_filename_derived_from_path(tmp_path, synthetic_fish_image):
+def test_result_filename_derived_from_path(tmp_path, synthetic_fish_image, mock_model_paths):
     """result['filename'] must be the basename of the input path."""
     import cv2
     from ZebrafishAnalysisLib.logic import analyse_images
@@ -128,7 +128,7 @@ def test_result_filename_derived_from_path(tmp_path, synthetic_fish_image):
 # Progress callback contract
 # ---------------------------------------------------------------------------
 
-def test_progress_callback_called_once_per_image(tmp_path, synthetic_fish_image):
+def test_progress_callback_called_once_per_image(tmp_path, synthetic_fish_image, mock_model_paths):
     """progress_callback(i, total) must be called exactly once per image."""
     import cv2
     from ZebrafishAnalysisLib.logic import analyse_images
@@ -173,7 +173,7 @@ def test_progress_callback_called_once_per_image(tmp_path, synthetic_fish_image)
 # Model cache semantics
 # ---------------------------------------------------------------------------
 
-def test_model_cache_reused_across_preload_calls(tmp_path):
+def test_model_cache_reused_across_preload_calls(tmp_path, mock_model_paths):
     """Calling preload_models twice with identical params must not reload model weights.
 
     The observable contract: the underlying load function (which reads from disk)
@@ -351,7 +351,7 @@ def test_export_csv_contains_expected_columns_and_values(tmp_path):
 # Error translation
 # ---------------------------------------------------------------------------
 
-def test_analyse_images_error_field_contains_message(tmp_path, synthetic_fish_image):
+def test_analyse_images_error_field_contains_message(tmp_path, synthetic_fish_image, mock_model_paths):
     """When segmentation_pipeline raises, the error field must contain the message."""
     import cv2
     from ZebrafishAnalysisLib.logic import analyse_images

@@ -700,12 +700,20 @@ def classification_curvature(image, mask, model, use_threshold, threshold):
 
     return cropped_image, curvature
 
-def load_model():
+def load_model(model_path: str):
+    """Load the curvature classification model from a local file.
+
+    Parameters
+    ----------
+    model_path : str
+        Absolute path to the model checkpoint file on the local filesystem.
+        Download the file first via ZebrafishAnalysisLib.model_downloader.
+        Raises FileNotFoundError when the path does not exist.
+    """
     import torch
     import torch.nn as nn
     import torch.nn.functional as F
     import timm
-    from huggingface_hub import hf_hub_download
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     class FishClassifier(nn.Module):
@@ -732,12 +740,11 @@ def load_model():
             x = self.fc2(x)
             return x
 
-    _HF_TOKEN = os.getenv("HF_TOKEN", None)
-    model_path = hf_hub_download(
-        repo_id="markdanielarndt/Classification",
-        filename="best_model_class.pth",
-        token=_HF_TOKEN
-    )
+    if not os.path.exists(model_path):
+        raise FileNotFoundError(
+            f"Curvature model not found at {model_path!r}. "
+            "Download models via ZebrafishAnalysisLib.model_downloader before running analysis."
+        )
 
     fallback = {'dense_layer': 512, 'dropout': 0.2, 'model_name': 'convnext_base'}
     print("Warning: best_params not found. Using fallback params:", fallback)

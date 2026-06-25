@@ -76,26 +76,47 @@ def preload_models(params: dict) -> None:
     """
     _install_model_cache()
     from ZebrafishAnalysisCore.length import load_model
+    from ZebrafishAnalysisLib.errors import ModelNotCachedError
+    from ZebrafishAnalysisLib.model_manifest import MODEL_SETS, get_cached_path, MODELS
+
+    model_id = params.get("model_id", "general")
+    model_set = MODEL_SETS.get(model_id, MODEL_SETS["general"])
 
     if params.get("curvature", True) and "curvature" not in _MODEL_CACHE:
-        _MODEL_CACHE["curvature"] = load_model()
+        curvature_entry = MODELS["curvature"]
+        curvature_path = get_cached_path(curvature_entry)
+        if not curvature_path.exists():
+            raise ModelNotCachedError(
+                f"{curvature_entry['label']} not found at {curvature_path}. "
+                "Download models first."
+            )
+        _MODEL_CACHE["curvature"] = load_model(str(curvature_path))
 
-    body_filename = params.get("body_model_filename", "best_model_body_3400_vgg19.pth")
-    body_encoder  = params.get("body_encoder_name",   "vgg19")
+    body_entry = model_set["body"]
+    body_path = get_cached_path(body_entry)
+    if not body_path.exists():
+        raise ModelNotCachedError(
+            f"{body_entry['label']} not found at {body_path}. "
+            "Download models first."
+        )
     _cached_load_unet(
-        model_path=params.get("body_model_path"),
-        repo_id="markdanielarndt/Zebrafish_Segmentation",
-        filename=body_filename, label="body model",
-        revision="main", force_download=False, encoder_name=body_encoder,
+        model_path=str(body_path),
+        label="body model",
+        encoder_name=body_entry["encoder"],
     )
 
     if params.get("eyes", False):
-        eye_filename = params.get("eye_model_filename", "best_model_eye_3400.pth")
+        eye_entry = model_set["eye"]
+        eye_path = get_cached_path(eye_entry)
+        if not eye_path.exists():
+            raise ModelNotCachedError(
+                f"{eye_entry['label']} not found at {eye_path}. "
+                "Download models first."
+            )
         _cached_load_unet(
-            model_path=params.get("eye_model_path"),
-            repo_id="markdanielarndt/Zebrafish_Segmentation",
-            filename=eye_filename, label="eye model",
-            revision="main", force_download=False, encoder_name="vgg16",
+            model_path=str(eye_path),
+            label="eye model",
+            encoder_name=eye_entry["encoder"],
         )
 
 # ---------------------------------------------------------------------------
@@ -163,10 +184,7 @@ def analyse_images(image_paths: list, params: dict,
           hitl                           : bool  — use confidence threshold
           threshold                      : float 0–1
           um_per_px                      : float — physical scale (µm/pixel)
-          body_model_filename            : str   — HF filename for body U-Net
-          body_encoder_name              : str   — encoder (vgg16 / vgg19)
-          eye_model_filename             : str   — HF filename for eye U-Net
-          body_force_download            : bool  — force re-download of body model
+          model_id                       : str   — "general" or "desy"
     progress_callback : callable(current, total) | None
 
     Returns
@@ -186,19 +204,42 @@ def analyse_images(image_paths: list, params: dict,
         classification_curvature,
         compute_eye_metrics,
     )
+    from ZebrafishAnalysisLib.errors import ModelNotCachedError
+    from ZebrafishAnalysisLib.model_manifest import MODEL_SETS, get_cached_path, MODELS
 
     um_per_px = float(params.get("um_per_px", 22.99))
     include_eyes = params.get("eyes", False)
-    body_filename = params.get("body_model_filename",
-                               "best_model_body_3400_vgg19.pth")
-    body_encoder = params.get("body_encoder_name", "vgg19")
-    eye_filename = params.get("eye_model_filename", "best_model_eye_3400.pth")
-    force_download = params.get("body_force_download", False)
+
+    model_id = params.get("model_id", "general")
+    model_set = MODEL_SETS.get(model_id, MODEL_SETS["general"])
+
+    # ---- validate required model files exist before starting ----
+    body_entry = model_set["body"]
+    body_path = get_cached_path(body_entry)
+    if not body_path.exists():
+        raise ModelNotCachedError(
+            f"{body_entry['label']} not found at {body_path}. Download models first."
+        )
+    if include_eyes:
+        eye_entry = model_set["eye"]
+        eye_path = get_cached_path(eye_entry)
+        if not eye_path.exists():
+            raise ModelNotCachedError(
+                f"{eye_entry['label']} not found at {eye_path}. Download models first."
+            )
+    if params.get("curvature", True):
+        curv_entry = MODELS["curvature"]
+        curv_manifest_path = get_cached_path(curv_entry)
+        if not curv_manifest_path.exists():
+            raise ModelNotCachedError(
+                f"{curv_entry['label']} not found at {curv_manifest_path}. "
+                "Download models first."
+            )
 
     # ---- load curvature model once (cached across calls) ----
     if params.get("curvature", True):
         if "curvature" not in _MODEL_CACHE:
-            _MODEL_CACHE["curvature"] = load_model()
+            _MODEL_CACHE["curvature"] = load_model(str(curv_manifest_path))
         curv_model = _MODEL_CACHE["curvature"]
     else:
         curv_model = None
@@ -209,16 +250,11 @@ def analyse_images(image_paths: list, params: dict,
     # means model weights are only read from disk once across all calls.
     _seg_kwargs = dict(
         include_eyes=include_eyes,
-        body_model_filename=body_filename,
-        body_encoder_name=body_encoder,
-        body_force_download=force_download,
+        body_model_path=str(body_path),
+        body_encoder_name=body_entry["encoder"],
     )
-    if params.get("body_model_path"):
-        _seg_kwargs["body_model_path"] = params["body_model_path"]
-    if include_eyes and eye_filename:
-        _seg_kwargs["eye_model_filename"] = eye_filename
-    if params.get("eye_model_path"):
-        _seg_kwargs["eye_model_path"] = params["eye_model_path"]
+    if include_eyes:
+        _seg_kwargs["eye_model_path"] = str(eye_path)
 
     n = len(image_paths)
     results = []

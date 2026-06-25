@@ -16,6 +16,8 @@ from slicer.util import VTKObservationMixin
 
 _LIB_MODULES = (
     "ZebrafishAnalysisLib.errors",
+    "ZebrafishAnalysisLib.model_manifest",
+    "ZebrafishAnalysisLib.model_downloader",
     "ZebrafishAnalysisLib.mrml",
     "ZebrafishAnalysisLib.widget",
     "ZebrafishAnalysisLib.gallery_tab",

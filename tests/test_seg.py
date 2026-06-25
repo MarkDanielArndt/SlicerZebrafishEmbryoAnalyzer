@@ -43,6 +43,10 @@ def test_segmentation_pipeline_returns_three_tuple(synthetic_fish_image, tmp_pat
     img_path = tmp_path / "fish.png"
     cv2.imwrite(str(img_path), synthetic_fish_image)
 
+    # F3: HF download removed — must provide a local model path.
+    body_model_path = str(tmp_path / "body_model.pth")
+    (tmp_path / "body_model.pth").write_bytes(b"dummy")
+
     dummy_model = _make_dummy_model()
 
     mock_torch = MagicMock()
@@ -53,11 +57,9 @@ def test_segmentation_pipeline_returns_three_tuple(synthetic_fish_image, tmp_pat
     mock_torch.tensor.return_value = MagicMock()
 
     with patch.dict(sys.modules, {"torch": mock_torch}), \
-         patch("huggingface_hub.hf_hub_download") as mock_dl, \
          patch("segmentation_models_pytorch.Unet") as mock_unet, \
          patch("ZebrafishAnalysisCore.seg.segment_fish") as mock_seg:
 
-        mock_dl.return_value = "/fake/path/model.pth"
         mock_unet.return_value = dummy_model
 
         pil_mask = _make_pil_mask()
@@ -68,7 +70,7 @@ def test_segmentation_pipeline_returns_three_tuple(synthetic_fish_image, tmp_pat
         result = segmentation_pipeline(
             folder_path=str(tmp_path),
             include_eyes=False,
-            body_force_download=False,
+            body_model_path=body_model_path,
         )
 
     assert len(result) == 3
@@ -95,6 +97,10 @@ def test_segmentation_pipeline_sorted_order(tmp_path):
     for name in ["b.png", "a.png", "c.png"]:
         cv2.imwrite(str(tmp_path / name), dummy_img)
 
+    # F3: HF download removed — must provide a local model path.
+    body_model_path = str(tmp_path / "body_model.pth")
+    (tmp_path / "body_model.pth").write_bytes(b"dummy")
+
     dummy_model = _make_dummy_model()
     pil_mask = Image.fromarray(np.zeros((256, 256), dtype=np.uint8))
     confidence = np.zeros((256, 256), dtype=np.uint8)
@@ -106,7 +112,6 @@ def test_segmentation_pipeline_sorted_order(tmp_path):
     mock_torch.tensor.return_value = MagicMock()
 
     with patch.dict(sys.modules, {"torch": mock_torch}), \
-         patch("huggingface_hub.hf_hub_download"), \
          patch("segmentation_models_pytorch.Unet") as mock_unet, \
          patch("ZebrafishAnalysisCore.seg.segment_fish") as mock_seg:
 
@@ -117,7 +122,7 @@ def test_segmentation_pipeline_sorted_order(tmp_path):
         originals, masks, growns = segmentation_pipeline(
             folder_path=str(tmp_path),
             include_eyes=False,
-            body_force_download=False,
+            body_model_path=body_model_path,
         )
 
     assert len(originals) == 3
@@ -132,6 +137,12 @@ def test_segmentation_pipeline_include_eyes_returns_four_tuple(tmp_path):
     dummy_img = np.zeros((64, 64, 3), dtype=np.uint8)
     cv2.imwrite(str(tmp_path / "fish.png"), dummy_img)
 
+    # F3: HF download removed — must provide local model paths.
+    body_model_path = str(tmp_path / "body_model.pth")
+    eye_model_path = str(tmp_path / "eye_model.pth")
+    (tmp_path / "body_model.pth").write_bytes(b"dummy")
+    (tmp_path / "eye_model.pth").write_bytes(b"dummy")
+
     dummy_model = _make_dummy_model()
     pil_mask = Image.fromarray(np.zeros((256, 256), dtype=np.uint8))
     confidence = np.zeros((256, 256), dtype=np.uint8)
@@ -143,7 +154,6 @@ def test_segmentation_pipeline_include_eyes_returns_four_tuple(tmp_path):
     mock_torch.tensor.return_value = MagicMock()
 
     with patch.dict(sys.modules, {"torch": mock_torch}), \
-         patch("huggingface_hub.hf_hub_download"), \
          patch("segmentation_models_pytorch.Unet") as mock_unet, \
          patch("ZebrafishAnalysisCore.seg.segment_fish") as mock_seg:
 
@@ -154,7 +164,8 @@ def test_segmentation_pipeline_include_eyes_returns_four_tuple(tmp_path):
         result = segmentation_pipeline(
             folder_path=str(tmp_path),
             include_eyes=True,
-            body_force_download=False,
+            body_model_path=body_model_path,
+            eye_model_path=eye_model_path,
         )
 
     assert len(result) == 4

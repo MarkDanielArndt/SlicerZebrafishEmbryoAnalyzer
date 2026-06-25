@@ -8,6 +8,8 @@ slicerMacroBuildScriptedModule(
     ZebrafishAnalysisLib/dependency_installer.py
     ZebrafishAnalysisLib/detail_tab.py
     ZebrafishAnalysisLib/errors.py
+    ZebrafishAnalysisLib/model_downloader.py
+    ZebrafishAnalysisLib/model_manifest.py
     ZebrafishAnalysisLib/mrml.py
     ZebrafishAnalysisLib/exclude_tab.py
     ZebrafishAnalysisLib/export.py
