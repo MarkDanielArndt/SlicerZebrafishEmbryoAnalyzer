@@ -274,10 +274,7 @@ def test_qualified_logic_import_from_package_layout():
 
 
 def test_qualified_core_scalebar_manual_import_without_ml_deps():
-    """scalebar and manual import without torch or segmentation_models_pytorch.
-
-    seg/seg_helper require torch at module level — current limitation, see Task F1.
-    """
+    """scalebar and manual import without torch or segmentation_models_pytorch."""
     result = _run_subprocess("""
         import sys
         sys.modules["segmentation_models_pytorch"] = None
@@ -288,24 +285,28 @@ def test_qualified_core_scalebar_manual_import_without_ml_deps():
     assert "OK" in result.stdout
 
 
-def test_seg_helper_currently_requires_torch_at_import_time():
-    """seg_helper imports torch unconditionally at module level.
+def test_seg_helper_importable_without_torch_at_module_level():
+    """After F1: seg must import without torch available at module level.
 
-    This is a characterization of the CURRENT state.  Task F1 will defer this
-    import to call time; when that is done, this test should be inverted (or
-    replaced) to assert that seg imports WITHOUT torch being available.
+    Task F1 deferred torch to call time.  This test verifies the new behavior:
+    seg imports successfully even when torch is blocked in sys.modules.
     """
     result = _run_subprocess("""
         import sys
         sys.modules["torch"] = None
+        sys.modules["segmentation_models_pytorch"] = None
+        sys.modules["huggingface_hub"] = None
         try:
             from ZebrafishAnalysisCore import seg
-            print("UNEXPECTEDLY_IMPORTED")
-        except (ImportError, ModuleNotFoundError):
-            print("IMPORT_BLOCKED_AS_EXPECTED")
+            print("IMPORTED_OK")
+        except (ImportError, ModuleNotFoundError) as exc:
+            print(f"IMPORT_BLOCKED_UNEXPECTEDLY: {exc}")
     """)
     assert result.returncode == 0
-    assert "IMPORT_BLOCKED_AS_EXPECTED" in result.stdout
+    assert "IMPORTED_OK" in result.stdout, (
+        "ZebrafishAnalysisCore.seg must be importable without torch at module level.\n"
+        f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+    )
 
 
 # ---------------------------------------------------------------------------

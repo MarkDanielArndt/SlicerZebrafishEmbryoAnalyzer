@@ -12,8 +12,26 @@ Export functions (export_excel, export_csv) live in export.py.
 
 import os
 import tempfile
-import cv2
-import numpy as np
+
+_ML_PACKAGES = ("torch", "cv2", "segmentation_models_pytorch", "timm")
+
+
+def dependency_status() -> dict:
+    """Return availability of optional ML/vision dependencies.
+
+    Performs lightweight importlib.util.find_spec checks — does NOT import the
+    packages.  Suitable for calling at module load time without triggering heavy
+    imports.
+
+    Returns
+    -------
+    dict[str, bool]
+        Keys are package names; values are True if the package is locatable on
+        sys.path, False otherwise.
+    """
+    import importlib.util
+    return {pkg: importlib.util.find_spec(pkg) is not None for pkg in _ML_PACKAGES}
+
 
 _MODEL_CACHE: dict = {}
 _original_load_unet = None  # set on first use by _install_model_cache()
@@ -24,7 +42,7 @@ def _install_model_cache():
     global _original_load_unet
     if _original_load_unet is not None:
         return
-    import numpy as np  # noqa: F401 — must precede torch to enable numpy bridge
+    import numpy as np  # noqa: F401 — must precede torch to enable numpy bridge  # noqa: F401
     import ZebrafishAnalysisCore.seg as _seg_module
     # On Slicer module reload, logic.py globals reset but seg._load_unet_model
     # still holds the wrapper from the old instance → would recurse infinitely.
@@ -40,7 +58,7 @@ def _install_model_cache():
 def _cached_load_unet(model_path=None, repo_id=None, filename=None, label="model",
                        revision="main", force_download=False, encoder_name="vgg16"):
     """Caching wrapper: first call loads from disk, subsequent calls return cached model."""
-    cache_key = f"_unet_{filename}_{encoder_name}"
+    cache_key = f"_unet_{model_path or filename}_{encoder_name}"
     if force_download or cache_key not in _MODEL_CACHE:
         _MODEL_CACHE[cache_key] = _original_load_unet(
             model_path=model_path, repo_id=repo_id, filename=filename,
@@ -120,7 +138,7 @@ def detect_scalebar(image_path: str, label_um: float | None = None) -> dict:
     Returns the dict produced by core detect_scalebar, or a failure dict
     if the image cannot be read.
     """
-    import cv2
+    import cv2  # deferred: heavy compiled extension, only needed at call time
     from ZebrafishAnalysisCore.scalebar import detect_scalebar as _detect_scalebar
     img_bgr = cv2.imread(image_path)
     if img_bgr is None:
@@ -158,6 +176,8 @@ def analyse_images(image_paths: list, params: dict,
         schema. On per-image errors the numeric fields are None and
         ``error`` holds the exception message.
     """
+    import cv2  # deferred: heavy compiled extension, only needed at call time
+    import numpy as np  # deferred: only needed inside analyse_images
     _install_model_cache()
     from ZebrafishAnalysisCore.seg import segmentation_pipeline
     from ZebrafishAnalysisCore.length import (
@@ -338,6 +358,7 @@ def apply_manual_correction(result, point1_orig, point2_orig, params=None):
         print("apply_manual_correction: mask or original missing — skipping")
         return result
 
+    import numpy as np  # deferred: only needed at call time
     from ZebrafishAnalysisCore.manual import compute_manual_length
     from ZebrafishAnalysisCore.length import classification_curvature
 

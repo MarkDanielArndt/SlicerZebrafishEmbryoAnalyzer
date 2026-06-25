@@ -45,17 +45,19 @@ def test_segmentation_pipeline_returns_three_tuple(synthetic_fish_image, tmp_pat
 
     dummy_model = _make_dummy_model()
 
-    with patch("huggingface_hub.hf_hub_download") as mock_dl, \
-         patch("ZebrafishAnalysisCore.seg.torch") as mock_torch, \
+    mock_torch = MagicMock()
+    mock_torch.load.return_value = {}
+    mock_torch.device.return_value = "cpu"
+    mock_torch.no_grad.return_value.__enter__ = lambda s: s
+    mock_torch.no_grad.return_value.__exit__ = MagicMock(return_value=False)
+    mock_torch.tensor.return_value = MagicMock()
+
+    with patch.dict(sys.modules, {"torch": mock_torch}), \
+         patch("huggingface_hub.hf_hub_download") as mock_dl, \
          patch("segmentation_models_pytorch.Unet") as mock_unet, \
          patch("ZebrafishAnalysisCore.seg.segment_fish") as mock_seg:
 
         mock_dl.return_value = "/fake/path/model.pth"
-        mock_torch.load.return_value = {}
-        mock_torch.device.return_value = "cpu"
-        mock_torch.no_grad.return_value.__enter__ = lambda s: s
-        mock_torch.no_grad.return_value.__exit__ = MagicMock(return_value=False)
-        mock_torch.tensor.return_value = MagicMock()
         mock_unet.return_value = dummy_model
 
         pil_mask = _make_pil_mask()
@@ -97,14 +99,17 @@ def test_segmentation_pipeline_sorted_order(tmp_path):
     pil_mask = Image.fromarray(np.zeros((256, 256), dtype=np.uint8))
     confidence = np.zeros((256, 256), dtype=np.uint8)
 
-    with patch("huggingface_hub.hf_hub_download"), \
-         patch("ZebrafishAnalysisCore.seg.torch") as mock_torch, \
+    mock_torch = MagicMock()
+    mock_torch.load.return_value = {}
+    mock_torch.no_grad.return_value.__enter__ = lambda s: s
+    mock_torch.no_grad.return_value.__exit__ = MagicMock(return_value=False)
+    mock_torch.tensor.return_value = MagicMock()
+
+    with patch.dict(sys.modules, {"torch": mock_torch}), \
+         patch("huggingface_hub.hf_hub_download"), \
          patch("segmentation_models_pytorch.Unet") as mock_unet, \
          patch("ZebrafishAnalysisCore.seg.segment_fish") as mock_seg:
 
-        mock_torch.no_grad.return_value.__enter__ = lambda s: s
-        mock_torch.no_grad.return_value.__exit__ = MagicMock(return_value=False)
-        mock_torch.tensor.return_value = MagicMock()
         mock_unet.return_value = dummy_model
         mock_seg.return_value = (pil_mask, confidence)
 
@@ -131,14 +136,17 @@ def test_segmentation_pipeline_include_eyes_returns_four_tuple(tmp_path):
     pil_mask = Image.fromarray(np.zeros((256, 256), dtype=np.uint8))
     confidence = np.zeros((256, 256), dtype=np.uint8)
 
-    with patch("huggingface_hub.hf_hub_download"), \
-         patch("ZebrafishAnalysisCore.seg.torch") as mock_torch, \
+    mock_torch = MagicMock()
+    mock_torch.load.return_value = {}
+    mock_torch.no_grad.return_value.__enter__ = lambda s: s
+    mock_torch.no_grad.return_value.__exit__ = MagicMock(return_value=False)
+    mock_torch.tensor.return_value = MagicMock()
+
+    with patch.dict(sys.modules, {"torch": mock_torch}), \
+         patch("huggingface_hub.hf_hub_download"), \
          patch("segmentation_models_pytorch.Unet") as mock_unet, \
          patch("ZebrafishAnalysisCore.seg.segment_fish") as mock_seg:
 
-        mock_torch.no_grad.return_value.__enter__ = lambda s: s
-        mock_torch.no_grad.return_value.__exit__ = MagicMock(return_value=False)
-        mock_torch.tensor.return_value = MagicMock()
         mock_unet.return_value = dummy_model
         mock_seg.return_value = (pil_mask, confidence)
 

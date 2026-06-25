@@ -1,10 +1,5 @@
 import numpy as np
-import cv2
 import os
-import torch
-import os
-import numpy as np
-import cv2
 from skimage import measure
 from scipy.ndimage import binary_erosion, convolve, distance_transform_edt
 from scipy.spatial.distance import cdist
@@ -162,8 +157,8 @@ def compute_eye_diameters(mask_eye, spacing=(1.0, 1.0)):
         pass
 
     ys, xs = np.where(m)
-    width_px  = int(xs.max() - xs.min() + 1)   
-    height_px = int(ys.max() - ys.min() + 1)   
+    width_px  = int(xs.max() - xs.min() + 1)
+    height_px = int(ys.max() - ys.min() + 1)
     out["eye_width_um"]  = float(width_px * dx)
     out["eye_height_um"] = float(height_px * dy)
     return out
@@ -180,7 +175,7 @@ def tube_length_border2border(mask, spacing=(1.0, 1.0), return_path=False, retur
     return_extensions: return boolean array indicating which path points are extensions
     mask_eye: optional 2D binary eye mask; if provided, path starts at the fish border pixel closest to eye mask
     return_eye_info: return eye-derived diagnostics computed inside this function
-    
+
     Returns:
         length: total path length along centerline
         straight_length: longest straight-line distance between any two border points
@@ -284,7 +279,7 @@ def tube_length_border2border(mask, spacing=(1.0, 1.0), return_path=False, retur
                     "eye_diameter_points": eye_diameter_points,
                 },)
             return out[0] if len(out) == 1 else out
-        
+
         # --- Smooth the skeleton path to reduce sharp turns, especially at thick ends ---
         def smooth_skeleton_path(path, dist_map, window=15, end_weight=10.0):
             """
@@ -293,14 +288,14 @@ def tube_length_border2border(mask, spacing=(1.0, 1.0), return_path=False, retur
             """
             if len(path) < 10:
                 return path
-            
+
             path_smooth = path.astype(float).copy()
             n = len(path)
-            
+
             # Compute thickness at each point
             thickness = np.array([dist_map[tuple(p)] for p in path])
             thickness_norm = thickness / (thickness.max() + 1e-6)
-            
+
             # Apply Gaussian-like smoothing with position-dependent weight
             for i in range(n):
                 # Distance from ends (normalized)
@@ -308,34 +303,34 @@ def tube_length_border2border(mask, spacing=(1.0, 1.0), return_path=False, retur
                 dist_from_end = (n - 1 - i) / n
                 end_proximity = 1.0 - min(dist_from_start, dist_from_end) * 2  # 1 at ends, 0 at middle
                 end_proximity = max(0, end_proximity)
-                
+
                 # Smoothing strength: higher at thick parts and at ends
                 smooth_weight = 0.3 + 0.5 * thickness_norm[i] + end_weight * end_proximity
                 smooth_weight = min(smooth_weight, 1.0)
-                
+
                 # Define window around current point
                 half_win = window // 2
                 start_idx = max(0, i - half_win)
                 end_idx = min(n, i + half_win + 1)
-                
+
                 if end_idx - start_idx > 2:
                     # Compute weighted average of nearby points
                     local_points = path[start_idx:end_idx].astype(float)
                     weights = np.exp(-0.5 * ((np.arange(len(local_points)) - (i - start_idx)) / (half_win/2)) ** 2)
                     weights /= weights.sum()
-                    
+
                     smoothed_point = (weights[:, None] * local_points).sum(axis=0)
                     path_smooth[i] = smooth_weight * smoothed_point + (1 - smooth_weight) * path[i]
-            
+
             # Round and convert back to int
             path_smooth = np.round(path_smooth).astype(int)
-            
+
             # Ensure all points are within bounds and on the mask
             path_smooth[:, 0] = np.clip(path_smooth[:, 0], 0, mask.shape[0] - 1)
             path_smooth[:, 1] = np.clip(path_smooth[:, 1], 0, mask.shape[1] - 1)
-            
+
             return path_smooth
-        
+
         path_skel = smooth_skeleton_path(path_skel, dist_skel, window=60, end_weight=10.0)
 
         # --- ray-cast from skeleton endpoints to find boundary in straight line ---
@@ -349,31 +344,31 @@ def tube_length_border2border(mask, spacing=(1.0, 1.0), return_path=False, retur
                 # fallback: nearest boundary
                 _, idx = btree.query(skel_point, k=1)
                 return tuple(bcoords[idx])
-            
+
             # Normalize direction
             direction = dir_vec / dir_norm
-            
+
             # Ray-cast from skeleton point outward
             current = np.array(skel_point, dtype=float)
             step_size = 0.5  # sub-pixel steps for accuracy
             max_steps = int(max(mask.shape) * 2)  # safety limit
-            
+
             for _ in range(max_steps):
                 current += direction * step_size
-                
+
                 # Check if we're out of bounds
                 r, c = int(round(current[0])), int(round(current[1]))
                 if r < 0 or r >= mask.shape[0] or c < 0 or c >= mask.shape[1]:
                     # Hit image boundary, backtrack slightly
                     current -= direction * step_size
                     break
-                
+
                 # Check if we've exited the mask
                 if not mask[r, c]:
                     # We've left the mask, backtrack to last valid point
                     current -= direction * step_size
                     break
-            
+
             # Find the nearest boundary point to where our ray ended
             ray_end = current
             _, idx = btree.query(ray_end, k=1)
@@ -402,44 +397,44 @@ def tube_length_border2border(mask, spacing=(1.0, 1.0), return_path=False, retur
             dist = np.linalg.norm(direction)
             if dist < 1e-6:
                 return np.array([skel_point], dtype=int)
-            
+
             # Number of points for interpolation - straight line regardless of mask
             n_points = max(2, int(np.ceil(dist)))
             t = np.linspace(0, 1, n_points)
             extension = sp[None, :] + t[:, None] * direction[None, :]
             extension = np.round(extension).astype(int)
-            
+
             # Clip to image bounds only
             extension[:, 0] = np.clip(extension[:, 0], 0, mask.shape[0] - 1)
             extension[:, 1] = np.clip(extension[:, 1], 0, mask.shape[1] - 1)
-            
+
             return extension
-        
+
         # Extend from start
         ext_start = extend_to_boundary(start, b1)
         # Extend from end
         ext_end = extend_to_boundary(end, b2)
-        
+
         # Track which parts are extensions
         len_ext_start = len(ext_start)
         len_skel = len(path_skel)
         len_ext_end = len(ext_end)
-        
+
         # Combine: boundary -> extension -> skeleton -> extension -> boundary
         if len(ext_start) > 1:
             ext_start = ext_start[::-1]  # reverse to go from boundary toward skeleton
         if len(ext_end) > 1:
             ext_end = ext_end[1:]  # skip first point (already in skeleton)
-        
+
         # Build complete path
         path = np.vstack([ext_start, path_skel, ext_end])
-        
+
         # Create extension mask
         extension_mask = np.zeros(len(path), dtype=bool)
         extension_mask[:len(ext_start)] = True
         if len(ext_end) > 1:
             extension_mask[-len(ext_end)+1:] = True
-        
+
         # Remove any duplicate consecutive points
         mask_diff = np.any(np.diff(path, axis=0) != 0, axis=1)
         keep_indices = np.concatenate([[True], mask_diff])
@@ -645,12 +640,13 @@ def normalize_images(data):
         if isinstance(data[0], np.ndarray):
             return np.array(data, dtype=np.float32)
         else:
-            return np.array([np.array(image) for image in data], dtype=np.float32) 
-        
+            return np.array([np.array(image) for image in data], dtype=np.float32)
+
 def apply_mask(original_image, mask):
     """
     Apply the mask to the original image.
     """
+    import cv2
     # Convert the mask to a 3-channel image
     original_image = cv2.resize(original_image, (mask.shape[1], mask.shape[0]), interpolation=cv2.INTER_LINEAR)
     # Invert the mask so that the fish is white (255) and background is black (0)
@@ -663,10 +659,12 @@ def apply_mask(original_image, mask):
     return masked_image
 
 def classification_curvature(image, mask, model, use_threshold, threshold):
+    import torch
     import torch.nn.functional as F
     import torchvision.transforms as T
+    import cv2  # deferred: only needed at call time
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    
+
     masked_image = apply_mask(image, mask)
 
     cropped_image = preprocess_masked_image(masked_image)
@@ -677,10 +675,10 @@ def classification_curvature(image, mask, model, use_threshold, threshold):
 
     # Ensure the masked image is in RGB format
     masked_image_rgb = cv2.cvtColor(cropped_image, cv2.COLOR_BGR2RGB)
-    
+
     # Ensure the image is scaled to [0, 255] before preprocessing
     masked_image_rgb = np.clip(masked_image_rgb, 0, 255).astype(np.uint8)
-    
+
     # Preprocess the image
     processed_image = normalize_images([masked_image_rgb])
 
@@ -689,7 +687,7 @@ def classification_curvature(image, mask, model, use_threshold, threshold):
     processed_image = processed_image.unsqueeze(0)
     #processed_image = torch.from_numpy(processed_image).permute(0, 3, 1, 2).float()
     processed_image = processed_image.to(device)
-    
+
     outputs = model(processed_image)
     curvature = 1 + torch.argmax(outputs, dim=1)
 
@@ -703,6 +701,7 @@ def classification_curvature(image, mask, model, use_threshold, threshold):
     return cropped_image, curvature
 
 def load_model():
+    import torch
     import torch.nn as nn
     import torch.nn.functional as F
     import timm
@@ -898,7 +897,7 @@ window_size_ratio = 5
 
 def preprocess_masked_image(image, target_size=(256, 256)):
     """
-    Preprocess a single masked image by cropping to the bounding box, 
+    Preprocess a single masked image by cropping to the bounding box,
     padding to a square, and resizing to the target size.
 
     Args:
@@ -908,6 +907,7 @@ def preprocess_masked_image(image, target_size=(256, 256)):
     Returns:
         numpy array: The processed image.
     """
+    import cv2
     # Step 1: Convert to grayscale and find non-black pixels
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     coords = cv2.findNonZero(gray)

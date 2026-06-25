@@ -1,8 +1,6 @@
 from .seg_helper import load_images_from_path, segment_fish, fill_holes, grow_mask
 import os
-import cv2
 import numpy as np
-import torch
 
 _UNET_CACHE = {}  # lazy-loaded cache keyed by (filename_or_path, encoder_name)
 
@@ -16,6 +14,7 @@ def _load_unet_model(model_path=None, repo_id=None, filename=None, label="model"
         print(f"{label.capitalize()} served from cache.")
         return _UNET_CACHE[cache_key]
 
+    import torch
     from segmentation_models_pytorch import Unet
     from huggingface_hub import hf_hub_download
     model = Unet(encoder_name=encoder_name, encoder_weights="imagenet", in_channels=3, classes=1)
@@ -87,6 +86,7 @@ def segmentation_pipeline(
         - if include_eyes=True: (original_images, segmented_images, grown_images, eyes_images)
         - if include_eyes=True and include_edema=True: (original_images, segmented_images, grown_images, eyes_images, edema_images)
     """
+    import cv2
     if file_list is not None:
         images = []
         for fp in file_list:
@@ -147,6 +147,7 @@ def segmentation_pipeline(
         else:
             print("Edema model loaded successfully!")
 
+    import torch
     # Preprocessing parameters
     mean = np.array([0.485, 0.456, 0.406])
     std = np.array([0.229, 0.224, 0.225])

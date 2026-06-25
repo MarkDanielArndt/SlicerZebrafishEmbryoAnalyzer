@@ -1,8 +1,5 @@
 import os
-from PIL import Image
-import torch
 import numpy as np
-import cv2
 
 def load_images_from_path(path):
     """
@@ -14,6 +11,7 @@ def load_images_from_path(path):
     Returns:
         list: A list of PIL Image objects.
     """
+    import cv2
     images = []
     for file_name in os.listdir(path):
         if file_name.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.tiff', 'tif')):
@@ -29,21 +27,23 @@ def load_images_from_path(path):
 def segment_fish(image, model, biggest_only=True):
     """
     Segment fish from the image using a pre-trained Unet model.
-    
+
     Parameters:
         image (PIL.Image): The input image.
-        
+
     Returns:
         PIL.Image: The segmented image with fish highlighted.
     """
+    import torch
+    from PIL import Image
     # Transform the image
     #image_tensor = transform(image).unsqueeze(0)  # Add batch dimension
     image_tensor = image
-    
+
     with torch.no_grad():
         # Get predictions from the model
         prediction = model(image_tensor)
-    
+
     # Get the mask — apply sigmoid to convert raw logits to probabilities [0, 1]
     mask = torch.sigmoid(prediction).squeeze().cpu().numpy()
     # Convert the probability map to a confidence map [0, 255]
@@ -51,9 +51,10 @@ def segment_fish(image, model, biggest_only=True):
 
     # Convert the confidence map to a binary mask (threshold at 0.5 probability)
     binary_mask = (confidence_map > 127).astype(np.uint8) * 255
-    
+
     # Convert the binary mask to a PIL image
     if biggest_only:
+        import cv2
         # Find the largest connected component in the binary mask
         num_labels, labels_im = cv2.connectedComponents(binary_mask)
 
@@ -73,7 +74,7 @@ def segment_fish(image, model, biggest_only=True):
     else:
         # Keep all components
         segmented_image = Image.fromarray(binary_mask)
-    
+
     return segmented_image, confidence_map
 
 
@@ -97,14 +98,15 @@ def fill_holes(mask):
         return mask  # Return the original mask if no safe corner found
 
     # Perform flood fill
+    import cv2
     cv2.floodFill(flood_filled, mask_ff, seedPoint=seed, newVal=1)
 
     # Invert the flood fill result (this now represents the "holes")
     flood_filled_inv = 1-flood_filled
-        
+
     # Combine the original mask with the holes to a new mask: result (0-1 range)
     filled_mask = mask | flood_filled_inv
-    
+
     return (filled_mask * 255).astype(np.uint8)
 
 def grow_mask(mask, iterations=3, kernel_size=3):
@@ -119,6 +121,7 @@ def grow_mask(mask, iterations=3, kernel_size=3):
     Returns:
     - grown mask (same shape)
     """
+    import cv2
     # Ensure binary with values 0 and 1
     mask = (mask > 0).astype(np.uint8)
 
