@@ -103,7 +103,8 @@ class _QtModule(types.ModuleType):
         return cls
 
 _qt = _QtModule("qt")
-_qt.Qt = MagicMock()   # Qt.StrongFocus, Qt.AlignCenter, etc. stay as MagicMock
+_qt.Qt = MagicMock()     # Qt.StrongFocus, Qt.AlignCenter, etc. stay as MagicMock
+_qt.QTimer = MagicMock() # QTimer.singleShot() must be callable in tests
 sys.modules["qt"]    = _qt
 sys.modules["ctk"]   = MagicMock()
 sys.modules["slicer"] = MagicMock()
@@ -262,7 +263,7 @@ def test_exit_method_is_defined():
 
 
 def test_scene_start_close_handler_calls_cancel_workers():
-    """_on_scene_start_close() must call _cancel_workers() to stop background jobs early."""
+    """_on_scene_start_close() must cancel active async operations early."""
     body = _method_source(_MAIN_PY, "ZebrafishAnalysisWidget", "_on_scene_start_close")
     assert "_cancel_workers" in body, (
         "_on_scene_start_close() must call _cancel_workers() on self._main"
@@ -291,17 +292,14 @@ def test_main_widget_has_reset_for_scene_close():
     )
 
 
-def test_main_widget_cleanup_stops_detail_timer():
-    """ZebrafishAnalysisMainWidget.cleanup() must stop the DetailTab poll timer."""
+def test_main_widget_cleanup_cleans_detail_tab():
+    """ZebrafishAnalysisMainWidget.cleanup() must clean transient detail state."""
     body = _method_source(_WIDGET_PY, "ZebrafishAnalysisMainWidget", "cleanup")
-    assert "_poll_timer" in body or "self._detail.cleanup" in body, (
-        "ZebrafishAnalysisMainWidget.cleanup() must stop the detail_tab poll timer "
-        "(either directly or via self._detail.cleanup())"
-    )
+    assert "self._detail.cleanup" in body
 
 
 def test_detail_tab_has_cleanup():
-    """DetailTab must define cleanup() to stop its 40 ms poll timer."""
+    """DetailTab must define cleanup() for transient visual state."""
     assert _has_method(_DETAIL_PY, "DetailTab", "cleanup"), (
         "DetailTab must define cleanup()"
     )
@@ -315,43 +313,40 @@ def test_detail_tab_has_reset_method():
 
 
 def test_detail_tab_cleanup_calls_invalidate_cache():
-    """DetailTab.cleanup() must call invalidate_cache() to discard stale worker results."""
+    """DetailTab.cleanup() must call invalidate_cache() to discard stale pixmaps."""
     body = _method_source(_DETAIL_PY, "DetailTab", "cleanup")
-    assert "invalidate_cache" in body, (
-        "DetailTab.cleanup() must call self.invalidate_cache() before stopping the timer"
-    )
+    assert "invalidate_cache" in body
 
 
 def test_detail_tab_reset_calls_invalidate_cache():
-    """DetailTab.reset() must call invalidate_cache() to discard stale worker results."""
+    """DetailTab.reset() must call invalidate_cache() to discard stale pixmaps."""
     body = _method_source(_DETAIL_PY, "DetailTab", "reset")
     assert "invalidate_cache" in body, (
         "DetailTab.reset() must call self.invalidate_cache()"
     )
 
 
-def test_detail_tab_reset_does_not_stop_timer():
-    """DetailTab.reset() must not stop the poll timer — only cleanup() does."""
+def test_detail_tab_reset_has_no_worker_timer_logic():
+    """DetailTab.reset() must not reference removed worker/poll timer state."""
     body = _method_source(_DETAIL_PY, "DetailTab", "reset")
-    assert "stop" not in body, (
-        "DetailTab.reset() must not stop the poll timer; only cleanup() does"
-    )
+    assert "_poll_timer" not in body
+    assert "_jobs" not in body
+    assert "_pending" not in body
 
 
-def test_setup_stores_prewarm_timer():
-    """setup() must store the prewarm QTimer so cleanup() can stop it."""
+def test_setup_no_prewarm_timer():
+    """setup() must not create a prewarm import timer."""
     body = _method_source(_MAIN_PY, "ZebrafishAnalysisWidget", "setup")
-    assert "_prewarm_timer" in body, (
-        "setup() must assign the prewarm timer to self._prewarm_timer "
-        "so cleanup() can stop it on module reload"
+    assert "_prewarm_timer" not in body, (
+        "setup() must not assign self._prewarm_timer"
     )
 
 
-def test_cleanup_stops_prewarm_timer():
-    """cleanup() must stop the prewarm timer to prevent stale callbacks after reload."""
+def test_cleanup_no_prewarm_timer():
+    """cleanup() must not reference _prewarm_timer."""
     body = _method_source(_MAIN_PY, "ZebrafishAnalysisWidget", "cleanup")
-    assert "_prewarm_timer" in body, (
-        "cleanup() must stop self._prewarm_timer"
+    assert "_prewarm_timer" not in body, (
+        "cleanup() must not reference _prewarm_timer — it was removed in G1 Redux"
     )
 
 
@@ -378,6 +373,7 @@ def test_reset_for_scene_close_clears_results_and_paths():
         w._run_stack   = MagicMock()
         w._scale_status = MagicMock()
         w._bar_um_edit  = MagicMock()
+        w._active_downloader = None
 
         w.reset_for_scene_close()
 
@@ -408,6 +404,7 @@ def test_reset_for_scene_close_calls_detail_reset_and_clears_gallery():
         w._run_stack   = MagicMock()
         w._scale_status = MagicMock()
         w._bar_um_edit  = MagicMock()
+        w._active_downloader = None
 
         w.reset_for_scene_close()
 
@@ -433,6 +430,8 @@ def test_cancel_workers_replaces_results_and_invalidates_cache():
         w = object.__new__(ZebrafishAnalysisMainWidget)
         w._results = [{"filename": "a.png"}]
         w._detail  = MagicMock()
+        w._run_stack = MagicMock()
+        w._active_downloader = None
 
         old_results = w._results
         w._cancel_workers()
@@ -485,22 +484,24 @@ def test_cleanup_clears_registered_observers():
     assert "OK" in r.stdout
 
 
-def test_prewarm_timer_stopped_on_cleanup():
-    """cleanup() stops the stored _prewarm_timer to prevent stale callbacks after reload."""
-    r = _run("""
-        from unittest.mock import MagicMock
-        from ZebrafishAnalysis import ZebrafishAnalysisWidget
-
-        w = object.__new__(ZebrafishAnalysisWidget)
-        w._main = None
-        w._parameterNode = None
-        w._obs  = []
-        mock_timer = MagicMock()
-        w._prewarm_timer = mock_timer
-
-        w.cleanup()
-
-        mock_timer.stop.assert_called_once()
+def test_no_prewarm_timer_on_cleanup():
+    """cleanup() must not stop a _prewarm_timer."""
+    # Duplicate of test_cleanup_no_prewarm_timer but uses a subprocess for defence-in-depth.
+    # Use _MAIN_PY constant (interpolated before subprocess launch) so __file__ is not needed.
+    r = _run(f"""
+        import ast
+        src = open(r"{_MAIN_PY}").read()
+        tree = ast.parse(src)
+        lines = src.splitlines(keepends=True)
+        cleanup_body = ""
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                if node.name == "cleanup" and hasattr(node, "end_lineno"):
+                    cleanup_body = "".join(lines[node.lineno - 1:node.end_lineno])
+                    break
+        assert "_prewarm_timer" not in cleanup_body, (
+            "cleanup() must not reference _prewarm_timer after G1 Redux"
+        )
         print("OK")
     """)
     assert r.returncode == 0, r.stderr
@@ -564,27 +565,18 @@ def test_cleanup_resets_observer_registration_flag():
     assert "OK" in r.stdout
 
 
-def test_detail_tab_cleanup_invalidates_cache_and_stops_timer():
-    """DetailTab.cleanup() increments generation, clears cache/pending, and stops the timer."""
+def test_detail_tab_cleanup_invalidates_cache():
+    """DetailTab.cleanup() calls invalidate_cache() which clears the pixmap cache."""
     r = _run_detail("""
         from unittest.mock import MagicMock
         from ZebrafishAnalysisLib.detail_tab import DetailTab
 
         d = object.__new__(DetailTab)
-        d._generation = 5
-        d._cache   = {"a": "pixmap"}
-        d._jobs    = {0, 1}
-        d._pending = {(0, 5): "rgb_array"}
-        mock_timer = MagicMock()
-        d._poll_timer = mock_timer
+        d._cache = {"a": "pixmap", "b": "pixmap2"}
 
         d.cleanup()
 
-        assert d._generation == 6, f"Generation not incremented: {d._generation}"
-        assert d._cache   == {}, f"Cache not cleared: {d._cache}"
-        assert d._jobs    == set(), f"Jobs not cleared: {d._jobs}"
-        assert d._pending == {}, f"Pending not cleared: {d._pending}"
-        mock_timer.stop.assert_called_once()
+        assert d._cache == {}, f"Cache not cleared by cleanup: {d._cache}"
         print("OK")
     """)
     assert r.returncode == 0, r.stderr
@@ -598,11 +590,7 @@ def test_detail_tab_cleanup_is_idempotent():
         from ZebrafishAnalysisLib.detail_tab import DetailTab
 
         d = object.__new__(DetailTab)
-        d._generation = 0
-        d._cache   = {}
-        d._jobs    = set()
-        d._pending = {}
-        d._poll_timer = MagicMock()
+        d._cache = {}
 
         d.cleanup()
         d.cleanup()   # second call must not raise
@@ -619,10 +607,7 @@ def test_detail_tab_reset_shows_placeholder():
         from ZebrafishAnalysisLib.detail_tab import DetailTab
 
         d = object.__new__(DetailTab)
-        d._generation = 0
         d._cache   = {"old": "pixmap"}
-        d._jobs    = {0}
-        d._pending = {}
         d._results = [{"filename": "fish.png"}]
         d._current_idx = 0
         d._full_pixmap = MagicMock()
@@ -657,8 +642,7 @@ def test_detail_tab_reset_clears_texts_and_labels():
         from ZebrafishAnalysisLib.detail_tab import DetailTab
 
         d = object.__new__(DetailTab)
-        d._generation = 0
-        d._cache = {}; d._jobs = set(); d._pending = {}
+        d._cache = {}
         d._results = []
         d._current_idx = 0
         d._full_pixmap = None
@@ -691,8 +675,7 @@ def test_detail_tab_reset_disables_navigation_and_clears_index():
         from ZebrafishAnalysisLib.detail_tab import DetailTab
 
         d = object.__new__(DetailTab)
-        d._generation = 0
-        d._cache = {}; d._jobs = set(); d._pending = {}
+        d._cache = {}
         d._results = [{"filename": "a.png"}, {"filename": "b.png"}]
         d._current_idx = 1   # non-zero to verify reset
         d._full_pixmap = None
@@ -719,17 +702,14 @@ def test_detail_tab_reset_disables_navigation_and_clears_index():
     assert "OK" in r.stdout
 
 
-def test_detail_tab_reset_invalidates_cache_and_generation():
-    """DetailTab.reset() increments generation and clears cache, jobs, and pending."""
+def test_detail_tab_reset_invalidates_cache_without_worker_state():
+    """DetailTab.reset() clears cache without requiring worker bookkeeping."""
     r = _run_detail("""
         from unittest.mock import MagicMock
         from ZebrafishAnalysisLib.detail_tab import DetailTab
 
         d = object.__new__(DetailTab)
-        d._generation = 3
         d._cache   = {0: "pixmap_a", 1: "pixmap_b"}
-        d._jobs    = {2, 3}
-        d._pending = {(0, 3): "rgb", (1, 3): "rgb2"}
         d._results = []
         d._current_idx = 0
         d._full_pixmap = None
@@ -745,60 +725,66 @@ def test_detail_tab_reset_invalidates_cache_and_generation():
 
         d.reset()
 
-        assert d._generation == 4, f"Generation not incremented: {d._generation}"
         assert d._cache   == {}, f"Cache not cleared: {d._cache}"
-        assert d._jobs    == set(), f"Jobs not cleared: {d._jobs}"
-        assert d._pending == {}, f"Pending not cleared: {d._pending}"
         print("OK")
     """)
     assert r.returncode == 0, r.stderr
     assert "OK" in r.stdout
 
 
-def test_detail_tab_stale_worker_result_discarded():
-    """_poll_pending() discards results whose generation does not match the current one."""
-    r = _run_detail("""
-        from unittest.mock import MagicMock, patch
-        from ZebrafishAnalysisLib.detail_tab import DetailTab
-
-        d = object.__new__(DetailTab)
-        d._generation = 7   # current generation
-        d._cache   = {}
-        d._jobs    = {0}
-        d._current_idx = 0
-        d._full_pixmap = None
-        # Inject a stale result from generation 6
-        d._pending = {(0, 6): None}  # old generation
-        d._view = MagicMock()
-        d._pending_reset_zoom = False
-
-        # Patch _numpy_to_qpixmap so the poll doesn't crash on None
-        import ZebrafishAnalysisLib.detail_tab as _dt
-        _orig = _dt._numpy_to_qpixmap
-        _dt._numpy_to_qpixmap = lambda arr: MagicMock()
-
-        d._poll_pending()
-
-        _dt._numpy_to_qpixmap = _orig
-
-        # Stale result must be consumed but NOT stored in cache
-        assert d._cache == {}, f"Stale result must not enter cache: {d._cache}"
-        d._view.set_pixmap.assert_not_called()
-        print("OK")
-    """)
-    assert r.returncode == 0, r.stderr
-    assert "OK" in r.stdout
+def test_detail_tab_has_no_poll_pending_worker_method():
+    """DetailTab must not retain the removed worker polling method."""
+    assert not _has_method(_DETAIL_PY, "DetailTab", "_poll_pending")
 
 
-def test_detail_tab_reset_poll_timer_keeps_running():
-    """DetailTab.reset() must not stop the poll timer — timer.stop() must not be called."""
+def test_detail_tab_show_result_builds_selected_pixmap_only():
+    """show_result() builds the selected pixmap and does not require neighbour preload."""
     r = _run_detail("""
         from unittest.mock import MagicMock
         from ZebrafishAnalysisLib.detail_tab import DetailTab
 
         d = object.__new__(DetailTab)
-        d._generation = 0
-        d._cache = {}; d._jobs = set(); d._pending = {}
+        d._cache   = {}
+        d._results = []
+        d._current_idx = 0
+        d._full_pixmap = None
+        d._manual_mode = False
+        d._manual_points = []
+        d._view = MagicMock()
+        d._metrics_label = MagicMock()
+        d._manual_row_widget = MagicMock()
+        d._manual_status = MagicMock()
+        d._btn_revert_auto = MagicMock()
+        d._btn_manual_adjust = MagicMock()
+        d._btn_prev = MagicMock()
+        d._btn_next = MagicMock()
+        d._nav_label = MagicMock()
+        d._pending_reset_zoom = True
+
+        import ZebrafishAnalysisLib.detail_tab as _dt
+        _dt._build_rgb_array = lambda result: result["rgb"]
+        fake_pixmap = MagicMock()
+        _dt._numpy_to_qpixmap = lambda arr: fake_pixmap
+
+        result = {"filename": "fish.png", "rgb": object(), "length": 1.0}
+        d.show_result(0, [result])
+
+        assert d._cache[0] is fake_pixmap
+        assert d._full_pixmap is fake_pixmap
+        print("OK")
+    """)
+    assert r.returncode == 0, r.stderr
+    assert "OK" in r.stdout
+
+
+def test_detail_tab_reset_does_not_reference_poll_timer():
+    """DetailTab.reset() does not use the removed poll timer."""
+    r = _run_detail("""
+        from unittest.mock import MagicMock
+        from ZebrafishAnalysisLib.detail_tab import DetailTab
+
+        d = object.__new__(DetailTab)
+        d._cache = {}
         d._results = []
         d._current_idx = 0
         d._full_pixmap = None
@@ -829,9 +815,9 @@ def test_detail_tab_accepts_new_results_after_reset():
         from unittest.mock import MagicMock
         from ZebrafishAnalysisLib.detail_tab import DetailTab
 
+        from unittest.mock import patch as _patch
         d = object.__new__(DetailTab)
-        d._generation = 0
-        d._cache = {}; d._jobs = set(); d._pending = {}
+        d._cache = {}
         d._results = []
         d._current_idx = 0
         d._full_pixmap = None
@@ -852,19 +838,21 @@ def test_detail_tab_accepts_new_results_after_reset():
         d._btn_revert_auto = MagicMock()
         d._btn_manual_adjust = MagicMock()
 
-        # Reset first, then call show_result with fresh data
+        # Reset first, then call show_result with fresh data.
         d.reset()
 
         fresh_results = [{"filename": "new_fish.png", "length": 1.2, "curvature": "straight"}]
-        # Patch _start_job so it does not spawn a real thread (no overlay needed)
-        d._start_job = MagicMock()
-        d._schedule_preload = MagicMock()
+        # Patch _ensure_cached so no real overlay is built.
+        d._ensure_cached = MagicMock()
+        # Pre-populate cache so show_result can set _full_pixmap without I/O.
+        fake_pixmap = MagicMock()
+        d._cache[0] = fake_pixmap
         d.show_result(0, fresh_results)
 
         assert d._results is fresh_results, "_results must be updated to fresh list"
         assert d._current_idx == 0
-        # view must have been asked to show a placeholder (loading state, since no cache)
-        mock_view.show_placeholder.assert_called()
+        # show_result now assigns pixmap directly from cache (synchronous path).
+        assert d._full_pixmap is fake_pixmap
         print("OK")
     """)
     assert r.returncode == 0, r.stderr

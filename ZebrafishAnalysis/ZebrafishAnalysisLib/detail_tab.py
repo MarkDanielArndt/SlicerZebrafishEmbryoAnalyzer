@@ -1,10 +1,8 @@
 """
 Detail tab — full-resolution overlay + metrics for the selected image.
 
-show_result(index, results) — display result at index, preload neighbours.
+show_result(index, results) — display result at index.
 """
-
-import threading
 
 import qt
 import numpy as np
@@ -24,7 +22,7 @@ def _numpy_to_qpixmap(rgb_array: np.ndarray) -> "qt.QPixmap":
 
 
 def _build_rgb_array(result: dict) -> np.ndarray:
-    """Pure numpy/OpenCV — safe to call from any thread."""
+    """Build the RGB overlay array synchronously on the main thread."""
     from ZebrafishAnalysisLib.overlay import make_full_overlay
     import cv2
     bgr = make_full_overlay(result)
@@ -41,20 +39,12 @@ class DetailTab(qt.QWidget):
         self._results = []
         self._current_idx = 0
         self._cache = {}          # index → QPixmap  (main thread only)
-        self._jobs = set()        # indices currently being built
-        self._pending = {}        # (index, generation) → rgb ndarray  (written by workers, read by poll)
-        self._generation = 0      # incremented on invalidate; workers capture it at spawn
         self._pending_reset_zoom = True  # True=reset zoom on next pixmap update
         self.setFocusPolicy(qt.Qt.StrongFocus)
 
         self._manual_mode = False
         self._manual_points = []   # list of (row, col) in original image space
         self._params_getter = None  # set by widget after construction
-
-        self._poll_timer = qt.QTimer()
-        self._poll_timer.setInterval(40)
-        self._poll_timer.timeout.connect(self._poll_pending)
-        self._poll_timer.start()
 
         # Main image viewer
         self._view = ZoomableImageView()
@@ -150,15 +140,11 @@ class DetailTab(qt.QWidget):
         self._manual_status.setVisible(False)
 
         self._pending_reset_zoom = True  # navigation → always reset zoom
-        if index in self._cache:
-            self._full_pixmap = self._cache[index]
-            qt.QTimer.singleShot(0, self._update_display)
-        else:
-            self._view.show_placeholder("Loading…")
-            self._full_pixmap = None
-            self._start_job(index)
+        if index not in self._cache:
+            self._cache[index] = _numpy_to_qpixmap(_build_rgb_array(results[index]))
+        self._full_pixmap = self._cache[index]
+        qt.QTimer.singleShot(0, self._update_display)
 
-        self._schedule_preload(index)
         self._update_nav_state()
 
     def show_raw_image(self, rgb: np.ndarray, caption: str = "") -> None:
@@ -166,8 +152,6 @@ class DetailTab(qt.QWidget):
         self._results = []
         self._current_idx = 0
         self._cache.clear()
-        self._jobs.clear()
-        self._pending.clear()
         self._pending_reset_zoom = True  # preview always resets zoom to fit
         self._manual_mode = False
         self._manual_points = []
@@ -182,13 +166,10 @@ class DetailTab(qt.QWidget):
 
     def invalidate_cache(self):
         """Call after a new batch run so stale pixmaps are discarded."""
-        self._generation += 1
         self._cache.clear()
-        self._jobs.clear()
-        self._pending.clear()
 
     def reset(self):
-        """Clear all visible and internal state after scene close. Poll timer keeps running."""
+        """Clear all visible and internal state after scene close."""
         self.invalidate_cache()
         self._results = []
         self._current_idx = 0
@@ -205,9 +186,8 @@ class DetailTab(qt.QWidget):
         self._manual_status.setVisible(False)
 
     def cleanup(self):
-        """Invalidate background workers and stop the poll timer."""
+        """Invalidate cache."""
         self.invalidate_cache()
-        self._poll_timer.stop()
 
     def _update_nav_state(self) -> None:
         n = len(self._results)
@@ -218,43 +198,21 @@ class DetailTab(qt.QWidget):
         else:
             self._nav_label.setText("")
 
-    # ------------------------------------------------------------------
-    # Background loading
-    # ------------------------------------------------------------------
-
-    def _start_job(self, index: int) -> None:
-        if index in self._cache or index in self._jobs:
+    def _ensure_cached(self, index: int) -> None:
+        """Build and cache the pixmap for index synchronously if not yet cached."""
+        if index in self._cache:
             return
         if index < 0 or index >= len(self._results):
             return
-        result = self._results[index]
-        self._jobs.add(index)
-        gen = self._generation
+        self._cache[index] = _numpy_to_qpixmap(_build_rgb_array(self._results[index]))
 
-        def worker(idx=index, res=result, g=gen):
-            rgb = _build_rgb_array(res)
-            self._pending[(idx, g)] = rgb  # CPython dict write is GIL-atomic
-
-        threading.Thread(target=worker, daemon=True).start()
-
-    def _poll_pending(self) -> None:
-        """Main-thread timer: drain pending rgb arrays → QPixmap → cache."""
-        if not self._pending:
-            return
-        for (idx, gen), rgb in list(self._pending.items()):
-            del self._pending[(idx, gen)]
-            if gen != self._generation:
-                continue  # stale worker from previous folder/batch — discard
-            self._jobs.discard(idx)
-            pixmap = _numpy_to_qpixmap(rgb)
-            self._cache[idx] = pixmap
-            if idx == self._current_idx:
-                self._full_pixmap = pixmap
-                self._view.set_pixmap(pixmap, reset_zoom=self._pending_reset_zoom)
-
-    def _schedule_preload(self, center: int) -> None:
-        for offset in (-1, 1, -2, 2):
-            self._start_job(center + offset)
+    def _start_job(self, index: int) -> None:
+        """Synchronously rebuild the overlay for index and update the display."""
+        self._cache.pop(index, None)
+        self._ensure_cached(index)
+        if index in self._cache:
+            self._full_pixmap = self._cache[index]
+            qt.QTimer.singleShot(0, self._update_display)
 
     # ------------------------------------------------------------------
     # Display
@@ -302,7 +260,6 @@ class DetailTab(qt.QWidget):
         self._logic.revert_manual_correction(result)
 
         self._cache.pop(self._current_idx, None)
-        self._jobs.discard(self._current_idx)
 
         self._manual_mode = False
         self._manual_points = []
@@ -348,7 +305,6 @@ class DetailTab(qt.QWidget):
         )
 
         self._cache.pop(self._current_idx, None)
-        self._jobs.discard(self._current_idx)
         self._manual_points = []
         self._full_pixmap = None
         self._pending_reset_zoom = False  # preserve zoom — user was zoomed in for precision

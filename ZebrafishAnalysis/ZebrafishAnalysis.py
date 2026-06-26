@@ -86,14 +86,6 @@ class ZebrafishAnalysisWidget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         self._register_scene_observers()
         self.initializeParameterNode()
 
-        if hasattr(self, "_prewarm_timer"):
-            self._prewarm_timer.stop()
-        self._prewarm_timer = qt.QTimer()
-        self._prewarm_timer.setSingleShot(True)
-        self._prewarm_timer.setInterval(500)
-        self._prewarm_timer.timeout.connect(self._prewarm_imports)
-        self._prewarm_timer.start()
-
     def _register_scene_observers(self):
         """Register MRML scene observers exactly once per setup."""
         if self._sceneObserversRegistered:
@@ -128,8 +120,6 @@ class ZebrafishAnalysisWidget(ScriptedLoadableModuleWidget, VTKObservationMixin)
 
     def cleanup(self):
         self.setParameterNode(None)
-        if hasattr(self, "_prewarm_timer"):
-            self._prewarm_timer.stop()
         if hasattr(self, "_dep_check_timer"):
             self._dep_check_timer.stop()
         self.removeObservers()
@@ -220,7 +210,7 @@ class ZebrafishAnalysisWidget(ScriptedLoadableModuleWidget, VTKObservationMixin)
 
     def _on_scene_start_close(self, caller=None, event=None):
         # Disconnect parameter node before scene objects are destroyed.
-        # Also invalidate background workers early.
+        # Also cancel active downloads and invalidate transient state early.
         self.setParameterNode(None)
         if self._main is not None:
             self._main._cancel_workers()
@@ -234,27 +224,6 @@ class ZebrafishAnalysisWidget(ScriptedLoadableModuleWidget, VTKObservationMixin)
     def _on_scene_end_import(self, caller=None, event=None):
         # Pick up parameter node values from the newly loaded scene.
         self.initializeParameterNode()
-
-    def _prewarm_imports(self):
-        from ZebrafishAnalysisLib.dependency_installer import get_missing_packages
-        if get_missing_packages()["torch"]:
-            return  # torch absent — skip thread to avoid ImportError log noise
-        import sys
-        import threading
-        # Skip on fresh install — torch not yet imported, first import takes several
-        # seconds and would freeze the UI if the user opens a file dialog concurrently.
-        if "torch" not in sys.modules:
-            return
-
-        def _work():
-            try:
-                from ZebrafishAnalysisCore.seg import segmentation_pipeline    # noqa: F401
-                from ZebrafishAnalysisCore.length import load_model             # noqa: F401
-            except Exception:
-                pass
-
-        threading.Thread(target=_work, daemon=True).start()
-
 
 class ZebrafishAnalysisLogic(ScriptedLoadableModuleLogic):
     """Orchestrates analysis requests on behalf of the widget.

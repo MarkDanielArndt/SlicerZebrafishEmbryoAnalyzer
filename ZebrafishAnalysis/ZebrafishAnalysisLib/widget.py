@@ -5,11 +5,8 @@ Left panel: input, analysis toggles, model selection, scalebar, run, export.
 Right panel: QTabWidget with Gallery / Detail / Results / Exclude tabs.
 """
 
-import importlib.util
 import logging
 import math
-import os
-import sys
 
 import qt
 import ctk
@@ -96,6 +93,9 @@ class ZebrafishAnalysisMainWidget:
         self._current_detail_idx = 0
         self._updatingGUIFromParameterNode = False
         self._on_settings_changed = None  # callable set by ZebrafishAnalysisWidget
+        self._active_downloader = None
+        self._disposed = False
+        self._run_token = 0
 
         self._build_ui(parent_layout)
         self._connect_signals()
@@ -303,7 +303,6 @@ class ZebrafishAnalysisMainWidget:
         self._btn_run.clicked.connect(self._on_run)
         self._btn_excel.clicked.connect(self._on_export_excel)
         self._btn_csv.clicked.connect(self._on_export_csv)
-        self._model_combo.currentIndexChanged.connect(self._start_preload)
 
         # Notify parameter node owner whenever any analysis setting changes.
         for _signal in (
@@ -371,144 +370,56 @@ class ZebrafishAnalysisMainWidget:
             except Exception:
                 pass
 
-        import sys
-        if "torch" in sys.modules:
-            self._start_preload()
-        self._load_originals_bg(paths, stubs)
+        self._load_originals(paths, stubs)
 
-    def _load_originals_bg(self, paths, stubs):
-        """Load remaining images in background; drain queue on main thread via timer."""
-        import threading
+    def _load_originals(self, paths, stubs):
+        """Load original images after an explicit user action."""
         import cv2
+        from ZebrafishAnalysisLib.gallery_tab import THUMB_SIZE as _THUMB_SIZE
 
-        # Queue holds (index, thumb_rgb_150px) — thumbnail built in background thread
-        # so main thread only does QPixmap creation (fast on small array).
-        thumb_queue = []
-        done_count = [0]  # mutable box so _work can update it
-
-        def _work():
-            from ZebrafishAnalysisLib.gallery_tab import THUMB_SIZE as _THUMB_SIZE
-            for i, p in enumerate(paths):
-                if stubs is not self._results:
-                    return
-                img = cv2.imread(p)
-                if img is not None:
-                    rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-                    stubs[i]["original"] = rgb
-                    # Resize directly — skip make_overlay (no mask yet, avoids
-                    # full-res cvtColor before resize).
-                    h, w = rgb.shape[:2]
-                    scale = _THUMB_SIZE / max(h, w)
-                    thumb = cv2.resize(rgb, (max(1, int(w * scale)), max(1, int(h * scale))))
-                    thumb_queue.append((i, thumb))
-                done_count[0] += 1
-
-        def _drain():
+        for i, p in enumerate(paths):
             if stubs is not self._results:
                 return
-            if thumb_queue:
-                idx, thumb_rgb = thumb_queue.pop(0)
-                self._gallery.update_thumb_prebuilt(idx, thumb_rgb)
-            if done_count[0] < len(paths) or thumb_queue:
-                qt.QTimer.singleShot(0, _drain)
+            img = cv2.imread(p)
+            if img is not None:
+                rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+                stubs[i]["original"] = rgb
+                h, w = rgb.shape[:2]
+                scale = _THUMB_SIZE / max(h, w)
+                thumb = cv2.resize(rgb, (max(1, int(w * scale)), max(1, int(h * scale))))
+                self._gallery.update_thumb_prebuilt(i, thumb)
 
-        if paths:
-            threading.Thread(target=_work, daemon=True).start()
-            qt.QTimer.singleShot(50, _drain)
-
-    def _start_preload(self):
-        """Kick off background model preload so Run Analysis starts instantly.
-
-        Skip if models are not yet in local cache — the download dialog will
-        run first, and importing huggingface_hub from two threads concurrently
-        causes circular-import errors in Slicer's Python environment.
-
-        Returns the Thread if started, None if skipped.
-        """
-        import sys
-        if "torch" not in sys.modules:
-            return None
-        import threading
-        model_id   = self._model_combo.currentData or _DEFAULT_MODEL_ID
-        model_data = _MODEL_BY_ID.get(model_id)
-        if not model_data:
-            return None
-        body_file, body_enc, eye_file = model_data
-        include_eyes = self._chk_eyes.isChecked()
-
-        # Only preload if all required models are already locally cached.
-        try:
-            from ZebrafishAnalysisLib.model_manifest import MODEL_SETS, get_missing_models
-            _preload_full_set = MODEL_SETS.get(model_id, MODEL_SETS[_DEFAULT_MODEL_ID])
-            _preload_required = {
-                "body": _preload_full_set["body"],
-            }
-            if self._chk_curvature.isChecked() and "curvature" in _preload_full_set:
-                _preload_required["curvature"] = _preload_full_set["curvature"]
-            if include_eyes and "eye" in _preload_full_set:
-                _preload_required["eye"] = _preload_full_set["eye"]
-            if get_missing_models(_preload_required):
-                return None  # download not done yet — skip preload, avoid concurrent HF import
-        except Exception:
-            return None
-
-        params = {
-            "curvature":  self._chk_curvature.isChecked(),
-            "eyes":       include_eyes,
-            "model_id":   model_id,
-        }
-
-        def _preload_safe():
-            # Best-effort prewarm: a failure here must not block starting analysis,
-            # and we must not raise a dialog from a background thread.
-            try:
-                self._logic.preload_models(params)
-            except Exception:
-                logging.exception("ZebrafishAnalysis: model preload failed")
-
-        t = threading.Thread(target=_preload_safe, daemon=True)
-        t.start()
-        return t
-
-    def _ensure_models_ready(self, model_id):
-        """Check the local model cache for model_id; prompt to download if missing.
-
-        Called at the start of _on_run() so no network access occurs at startup.
-
-        Returns True when all required models are present or after a successful
-        download.  Returns False when the user declines or a download error occurs.
-
-        Guard: when ``slicer.app.testingEnabled()`` is True the check is skipped
-        and True is returned so automated tests never show dialogs or touch the
-        network.
-        """
-        try:
-            import slicer as _slicer
-            if _slicer.app.testingEnabled():
-                return True
-        except ImportError:
-            return True
-
-        from ZebrafishAnalysisLib.model_manifest import MODEL_SETS, get_missing_models
-        from ZebrafishAnalysisLib.model_downloader import download_models
-
+    def _required_model_entries(self, model_id):
+        """Return the model entries required by the current settings."""
+        from ZebrafishAnalysisLib.model_manifest import MODEL_SETS
         model_set = MODEL_SETS.get(model_id, MODEL_SETS[_DEFAULT_MODEL_ID])
-
-        # Only require models that are actually needed for current settings.
         required = {"body": model_set["body"]}
         if self._chk_curvature.isChecked() and "curvature" in model_set:
             required["curvature"] = model_set["curvature"]
         if self._chk_eyes.isChecked() and "eye" in model_set:
             required["eye"] = model_set["eye"]
+        return required
 
-        missing = get_missing_models(required)
-        if not missing:
-            return True
+    def _missing_required_models(self, model_id):
+        from ZebrafishAnalysisLib.model_manifest import get_missing_models
+        return get_missing_models(self._required_model_entries(model_id))
+
+    def _prompt_download_models(self, missing):
+        """Ask the user whether to download the missing model entries."""
+        try:
+            import slicer as _slicer
+            if _slicer.app.testingEnabled():
+                return False
+        except ImportError:
+            return False
+
+        def _mb_label(byte_count):
+            return round(byte_count / 1_048_576)
 
         def _size_label(e):
             sb = e.get("size_bytes", 0)
             if sb > 0:
-                return f"  • {e['label']} (~{round(sb / 1_000_000)} MB)"
+                return f"  • {e['label']} (~{_mb_label(sb)} MB)"
             return f"  • {e['label']}"
 
         total_bytes = sum(e.get("size_bytes", 0) for e in missing)
@@ -518,7 +429,7 @@ class ZebrafishAnalysisMainWidget:
             + "\n".join(lines)
         )
         if total_bytes > 0:
-            body += f"\n\nTotal: ~{round(total_bytes / 1_000_000)} MB"
+            body += f"\n\nTotal: ~{_mb_label(total_bytes)} MB"
         body += "\n\nDownload now? (first run only, requires internet)"
 
         msg = qt.QMessageBox()
@@ -529,7 +440,7 @@ class ZebrafishAnalysisMainWidget:
         if msg.exec_() != qt.QMessageBox.Yes:
             return False
 
-        return download_models(missing)
+        return True
 
     def _on_detect_scale(self):
         if not self._image_paths:
@@ -582,15 +493,13 @@ class ZebrafishAnalysisMainWidget:
             )
 
     def _on_run(self):
+        self._run_token += 1
+        token = self._run_token
         if not self._image_paths:
             slicer.util.warningDisplay("No images loaded.")
             return
 
         model_id = self._model_combo.currentData or _DEFAULT_MODEL_ID
-
-        # Check model cache; prompt to download if missing.
-        if not self._ensure_models_ready(model_id):
-            return  # user declined or download failed
 
         params = {
             "length":    self._chk_length.isChecked(),
@@ -603,54 +512,99 @@ class ZebrafishAnalysisMainWidget:
             "model_id":  model_id,
         }
 
+        missing = self._missing_required_models(model_id)
+        if missing:
+            if not self._prompt_download_models(missing):
+                return
+            self._start_model_download(missing, model_id, params, token)
+            return
+
+        self._run_analysis_after_models_ready(model_id, params, token)
+
+    def _start_model_download(self, missing, model_id, params, token):
+        """Start an asynchronous Qt download and continue analysis only on success."""
+        if self._active_downloader is not None:
+            slicer.util.warningDisplay("A model download is already running.")
+            return
+
+        try:
+            self._run_progress.setRange(0, 100)
+            self._run_progress.setValue(0)
+            self._run_progress.setFormat("Downloading models...")
+            self._run_stack.setCurrentIndex(1)
+
+            from ZebrafishAnalysisLib.model_downloader import start_model_download
+
+            def _finished(success, state, message, controller):
+                if self._disposed or controller is not self._active_downloader:
+                    return
+                self._active_downloader = None
+                if not success:
+                    self._run_stack.setCurrentIndex(0)
+                    return
+                if self._missing_required_models(model_id):
+                    slicer.util.errorDisplay(
+                        "Model download finished, but required models were not verified."
+                    )
+                    self._run_stack.setCurrentIndex(0)
+                    return
+                # Download succeeded. Set up "Loading models…" state now so it can
+                # render during the one event-loop cycle we defer by below.
+                self._run_progress.setRange(0, 100)
+                self._run_progress.setValue(0)
+                self._run_progress.setFormat("Loading models…")
+                # Keep _run_stack at index 1 (running view); do NOT reset to 0 here.
+                # Schedule analysis for the next event-loop iteration. This gives
+                # the download dialog one cycle to close and the "Loading models…"
+                # state one cycle to render before the main thread blocks on
+                # preload_models(). No polling, no processEvents(), exactly once.
+                def _deferred_analysis():
+                    if self._disposed:
+                        self._run_stack.setCurrentIndex(0)
+                        return
+                    if self._run_token != token:
+                        # A newer run superseded this one; clean up silently.
+                        self._run_stack.setCurrentIndex(0)
+                        return
+                    self._run_analysis_after_models_ready(model_id, params, token)
+
+                qt.QTimer.singleShot(0, _deferred_analysis)
+
+            self._active_downloader = start_model_download(
+                missing,
+                _finished,
+                parent=slicer.util.mainWindow(),
+            )
+        except Exception as exc:
+            # Restore UI to idle state if download setup raised before connecting.
+            self._run_stack.setCurrentIndex(0)
+            self._active_downloader = None
+            logging.exception("ZebrafishAnalysis: failed to start model download")
+            slicer.util.errorDisplay(f"Could not start model download:\n{exc}")
+
+    def _run_analysis_after_models_ready(self, model_id, params, token):
+        """Load models after explicit Run Analysis, then run synchronous inference."""
+        if self._run_token != token:
+            return  # superseded by a newer run
         n = len(self._image_paths)
         import time as _time
 
-        # Marquee: fixed-width chunk slides left→right via stylesheet margins.
-        # Value pinned at 100 so the chunk always fills the bar; margins clip it
-        # to ~25% width.  Text stays visible (indeterminate mode hides it on macOS).
-        _mrq_chunk = (
-            "QProgressBar{font-weight:bold;border-radius:3px;border:none;"
-            "background:#3a3a3a;color:white;text-align:center;min-height:28px;}"
-            "QProgressBar::chunk{background:#2e7d32;border-radius:2px;"
-            "margin-left:%dpx;margin-right:%dpx;}"
-        )
-        _mrq_base = (
-            "QProgressBar{font-weight:bold;border-radius:3px;border:none;"
-            "background:#3a3a3a;color:white;text-align:center;min-height:28px;}"
-            "QProgressBar::chunk{background:#2e7d32;border-radius:2px;}"
-        )
         self._run_progress.setRange(0, 100)
-        self._run_progress.setValue(100)
+        self._run_progress.setValue(0)
         self._run_progress.setFormat("Loading models…")
         self._run_stack.setCurrentIndex(1)   # switch to running view (hides Run button)
-        slicer.app.processEvents()
 
         ok = False
         try:
-            _mrq_t0 = _time.time()
-            preload_t = self._start_preload()
-            # Run until preload done AND at least 0.5 s elapsed so animation is
-            # always visible, even when models were already in RAM.
-            while True:
-                _mrq_elapsed = _time.time() - _mrq_t0
-                if _mrq_elapsed >= 0.5 and (preload_t is None or not preload_t.is_alive()):
-                    break
-                slicer.app.processEvents()
-                _time.sleep(0.05)
-                bar_w = max(self._run_progress.width, 100)
-                chunk_px = bar_w // 4
-                # pos_px: -chunk_px (fully off left) → bar_w (fully off right), then wraps
-                total_range = bar_w + chunk_px
-                pos_px = int(_mrq_elapsed * (total_range / 2.5) % total_range) - chunk_px
-                left_px = max(0, pos_px)
-                right_px = max(0, bar_w - pos_px - chunk_px)
-                self._run_progress.setStyleSheet(_mrq_chunk % (left_px, right_px))
-            self._run_progress.setStyleSheet(_mrq_base)
+            preload_params = {
+                "curvature": self._chk_curvature.isChecked(),
+                "eyes":      self._chk_eyes.isChecked(),
+                "model_id":  model_id,
+            }
+            self._logic.preload_models(preload_params)
 
             self._run_progress.setRange(0, n)
             self._run_progress.setValue(0)
-            slicer.app.processEvents()
 
             _t0 = _time.time()
 
@@ -664,7 +618,6 @@ class ZebrafishAnalysisMainWidget:
                     self._run_progress.setFormat(f"Image {i} / {total}  ·  {eta}")
                 else:
                     self._run_progress.setFormat(f"Image {i} / {total}")
-                slicer.app.processEvents()
 
             self._results = self._logic.run_analysis(self._image_paths, params, _set_btn_progress)
             ok = True
@@ -871,21 +824,23 @@ class ZebrafishAnalysisMainWidget:
         self.refresh_dependency_status()
 
     def _cancel_workers(self):
-        """Invalidate running background workers without touching the UI.
-
-        Replacing self._results breaks the sentinel check in _load_originals_bg.
-        invalidate_cache() increments the generation counter so overlay-rendering
-        workers discard their results.
-        """
+        """Cancel active asynchronous operations and invalidate transient state."""
+        self._run_token = getattr(self, "_run_token", 0) + 1  # invalidate any pending deferred continuation
+        if getattr(self, "_active_downloader", None) is not None:
+            self._active_downloader.cancel(silent=True)
+            self._active_downloader = None
+        if hasattr(self, "_run_stack"):
+            self._run_stack.setCurrentIndex(0)
         self._results = []
         self._detail.invalidate_cache()
 
     def reset_for_scene_close(self):
         """Clear all session state after the MRML scene is closed."""
-        self._results = []          # stop _load_originals_bg workers
+        self._cancel_workers()
+        self._results = []
         self._image_paths = []
         self._excluded = set()
-        self._detail.reset()        # clear visual state + invalidate workers; timer stays active
+        self._detail.reset()
         self._queue_list.clear()
         self._gallery.populate([])
         self._results_tab.populate([])
@@ -899,8 +854,12 @@ class ZebrafishAnalysisMainWidget:
 
     def cleanup(self):
         """Stop persistent resources before the widget is torn down."""
-        self._results = []  # stop _load_originals_bg workers
-        self._detail.cleanup()  # invalidates cache + stops poll timer
+        self._disposed = True
+        if getattr(self, "_active_downloader", None) is not None:
+            self._active_downloader.dispose()
+            self._active_downloader = None
+        self._results = []
+        self._detail.cleanup()  # invalidates cache
 
     def _on_results_ready(self):
         self._detail.invalidate_cache()

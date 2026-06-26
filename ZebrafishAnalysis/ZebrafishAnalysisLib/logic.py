@@ -71,8 +71,8 @@ def _cached_load_unet(model_path=None, repo_id=None, filename=None, label="model
 def preload_models(params: dict) -> None:
     """Load and cache all models needed for the given params.
 
-    Safe to call from a background thread — only does file I/O and weight
-    deserialization, no parallel OMP inference.
+    Called only after explicit Run Analysis.  Performs model weight
+    deserialization synchronously in the current process.
     """
     _install_model_cache()
     from ZebrafishAnalysisCore.length import load_model
