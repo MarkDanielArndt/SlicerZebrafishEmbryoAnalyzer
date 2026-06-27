@@ -18,6 +18,8 @@ _LIB_MODULES = (
     "ZebrafishAnalysisLib.errors",
     "ZebrafishAnalysisLib.model_manifest",
     "ZebrafishAnalysisLib.model_downloader",
+    "ZebrafishAnalysisLib.inference_runner",
+    "ZebrafishAnalysisLib.inference_worker",
     "ZebrafishAnalysisLib.mrml",
     "ZebrafishAnalysisLib.widget",
     "ZebrafishAnalysisLib.gallery_tab",

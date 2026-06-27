@@ -564,34 +564,18 @@ def test_cmake_packaging_list_includes_errors_py():
 # Widget exception routing
 # ---------------------------------------------------------------------------
 
-def test_widget_catches_analysis_input_error_specifically():
-    """In the analysis run path, widget must catch AnalysisInputError, not broad ValueError.
+def test_widget_does_not_call_logic_run_analysis_directly():
+    """widget.py must not call self._logic.run_analysis() directly.
 
-    Catching broad ValueError as a warning around run_analysis would silently
-    swallow unexpected ValueError exceptions from ZebrafishAnalysisCore code.
-    The check is scoped to the block between 'run_analysis' and the matching
-    'except Exception' clause so unrelated float-parse ValueError handlers
-    elsewhere in the file are not flagged.
+    Inference is now subprocess-based (InferenceController / inference_worker.py).
+    The main thread never blocks on synchronous model inference.
     """
-    import re
     path = os.path.join(_MODULE_DIR, "ZebrafishAnalysisLib/widget.py")
     source = open(path).read()
 
-    # Extract the block from run_analysis call to the outer except Exception line.
-    m = re.search(
-        r"self\._logic\.run_analysis\(.+?except Exception\b",
-        source,
-        re.DOTALL,
-    )
-    assert m is not None, "could not locate the run_analysis try/except block in widget.py"
-    run_block = m.group(0)
-
-    assert "except AnalysisInputError" in run_block, (
-        "run_analysis try/except must catch AnalysisInputError (not broad ValueError)"
-    )
-    assert not re.search(r"except ValueError\b", run_block), (
-        "run_analysis try/except must not catch broad ValueError as a warning "
-        "(would swallow unexpected core ValueErrors)"
+    assert "self._logic.run_analysis(" not in source, (
+        "widget.py must not call self._logic.run_analysis() directly — "
+        "inference runs in a subprocess via InferenceController"
     )
 
 

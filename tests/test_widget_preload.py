@@ -121,15 +121,16 @@ def test_run_analysis_starts_download_before_analysis_when_models_missing(widget
     w._prompt_download_models = MagicMock(return_value=True)
     w._missing_required_models = MagicMock(return_value=[{"label": "Body"}])
     w._start_model_download = MagicMock()
-    w._run_analysis_after_models_ready = MagicMock()
+    w._start_inference_process = MagicMock()
 
     w._on_run()
 
     w._start_model_download.assert_called_once()
-    w._run_analysis_after_models_ready.assert_not_called()
+    w._start_inference_process.assert_not_called()
 
 
-def test_run_analysis_loads_models_only_when_cache_ready(widget_module):
+def test_run_analysis_starts_inference_when_models_cached(widget_module):
+    """When models are already cached, _start_inference_process is called directly."""
     w = object.__new__(widget_module.ZebrafishAnalysisMainWidget)
     w._run_token = 0
     w._image_paths = ["/tmp/fish.png"]
@@ -147,11 +148,11 @@ def test_run_analysis_loads_models_only_when_cache_ready(widget_module):
     w._um_per_px = MagicMock()
     w._um_per_px.value = 22.99
     w._missing_required_models = MagicMock(return_value=[])
-    w._run_analysis_after_models_ready = MagicMock()
+    w._start_inference_process = MagicMock()
 
     w._on_run()
 
-    w._run_analysis_after_models_ready.assert_called_once()
+    w._start_inference_process.assert_called_once()
 
 
 def test_downloader_success_rechecks_cache_before_analysis(widget_module):
@@ -163,7 +164,7 @@ def test_downloader_success_rechecks_cache_before_analysis(widget_module):
     w._run_progress = MagicMock()
     w._run_stack = MagicMock()
     w._missing_required_models = MagicMock(return_value=[])
-    w._run_analysis_after_models_ready = MagicMock()
+    w._start_inference_process = MagicMock()
     missing = [{"label": "Body"}]
     params = {"model_id": "general"}
 
@@ -179,7 +180,7 @@ def test_downloader_success_rechecks_cache_before_analysis(widget_module):
 
     w._missing_required_models.assert_called_with("general")
     # Analysis is now deferred via QTimer.singleShot, not called directly.
-    w._run_analysis_after_models_ready.assert_not_called()
+    w._start_inference_process.assert_not_called()
     _qt.QTimer.singleShot.assert_called_once()
     call_args = _qt.QTimer.singleShot.call_args
     assert call_args[0][0] == 0
@@ -187,7 +188,7 @@ def test_downloader_success_rechecks_cache_before_analysis(widget_module):
     assert callable(deferred)
     # Call the deferred — token matches so analysis runs.
     deferred()
-    w._run_analysis_after_models_ready.assert_called_once_with("general", params, 1)
+    w._start_inference_process.assert_called_once_with("general", params, 1)
 
 
 def test_downloader_failure_does_not_start_analysis(widget_module):
@@ -198,7 +199,7 @@ def test_downloader_failure_does_not_start_analysis(widget_module):
     w._run_progress = MagicMock()
     w._run_stack = MagicMock()
     w._missing_required_models = MagicMock(return_value=[])
-    w._run_analysis_after_models_ready = MagicMock()
+    w._start_inference_process = MagicMock()
     controller = MagicMock()
 
     def fake_start(entries, callback, parent=None):
@@ -209,7 +210,7 @@ def test_downloader_failure_does_not_start_analysis(widget_module):
     with patch("ZebrafishAnalysisLib.model_downloader.start_model_download", fake_start):
         w._start_model_download([{"label": "Body"}], "general", {}, token=1)
 
-    w._run_analysis_after_models_ready.assert_not_called()
+    w._start_inference_process.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -227,7 +228,7 @@ def _make_download_widget(widget_module, token=1):
     w._run_progress = MagicMock()
     w._run_stack = MagicMock()
     w._missing_required_models = MagicMock(return_value=[])
-    w._run_analysis_after_models_ready = MagicMock()
+    w._start_inference_process = MagicMock()
     return w
 
 
@@ -258,13 +259,13 @@ def test_download_success_schedules_deferred_continuation_not_direct_call(widget
     assert callable(args[1])
 
     # Analysis must NOT have been called synchronously inside _finished.
-    w._run_analysis_after_models_ready.assert_not_called()
+    w._start_inference_process.assert_not_called()
 
 
 def test_download_success_does_not_call_analysis_inside_finished_callback(widget_module):
     w = _make_download_widget(widget_module, token=1)
     _fire_download_success(widget_module, w, token=1)
-    assert w._run_analysis_after_models_ready.call_count == 0
+    assert w._start_inference_process.call_count == 0
 
 
 def test_deferred_continuation_calls_analysis_when_token_matches(widget_module):
@@ -275,7 +276,7 @@ def test_deferred_continuation_calls_analysis_when_token_matches(widget_module):
     deferred = _qt.QTimer.singleShot.call_args[0][1]
     deferred()
 
-    w._run_analysis_after_models_ready.assert_called_once_with(
+    w._start_inference_process.assert_called_once_with(
         "general", {"model_id": "general"}, 1
     )
 
@@ -289,7 +290,7 @@ def test_disposed_before_deferred_continuation_prevents_analysis(widget_module):
     w._disposed = True
     deferred()
 
-    w._run_analysis_after_models_ready.assert_not_called()
+    w._start_inference_process.assert_not_called()
     # UI must be reset to idle.
     w._run_stack.setCurrentIndex.assert_called_with(0)
 
@@ -304,7 +305,7 @@ def test_stale_token_before_deferred_continuation_prevents_analysis(widget_modul
     w._run_token = 2
     deferred()
 
-    w._run_analysis_after_models_ready.assert_not_called()
+    w._start_inference_process.assert_not_called()
     w._run_stack.setCurrentIndex.assert_called_with(0)
 
 
@@ -330,7 +331,7 @@ def test_no_processevents_in_download_to_analysis_path():
     source = WIDGET_PATH.read_text()
     tree = ast.parse(source)
 
-    target_functions = {"_start_model_download", "_run_analysis_after_models_ready"}
+    target_functions = {"_start_model_download", "_start_inference_process"}
     found_violations = []
 
     for node in ast.walk(tree):
@@ -344,41 +345,66 @@ def test_no_processevents_in_download_to_analysis_path():
     assert found_violations == [], f"processEvents found in: {found_violations}"
 
 
-def test_inference_progress_callback_unchanged(widget_module):
-    from ZebrafishAnalysisLib.errors import AnalysisInputError
+def test_set_queue_cancels_active_runner(widget_module):
+    """_set_queue must cancel any in-flight InferenceController."""
+    w = object.__new__(widget_module.ZebrafishAnalysisMainWidget)
+    w._run_token = 0
+    w._results = []
+    w._run_stack = MagicMock()
+    runner = MagicMock()
+    w._active_runner = runner
+    w._gallery = MagicMock()
+    w._queue_list = MagicMock()
+    w._detail = MagicMock()
+    w._tabs = MagicMock()
+    w._load_originals = MagicMock()
+
+    w._set_queue([])
+
+    runner.cancel.assert_called_once()
+    assert w._active_runner is None
+
+
+def test_set_queue_bumps_token_before_cancel(widget_module):
+    """Token increment happens before runner cancel so callback sees stale token."""
+    tokens_at_cancel = []
+
+    def _cancel():
+        tokens_at_cancel.append(w._run_token)
 
     w = object.__new__(widget_module.ZebrafishAnalysisMainWidget)
     w._run_token = 1
-    w._image_paths = ["/img/a.png", "/img/b.png", "/img/c.png"]
-    w._run_progress = MagicMock()
+    w._results = []
     w._run_stack = MagicMock()
-    w._chk_curvature = MagicMock()
-    w._chk_curvature.isChecked.return_value = False
-    w._chk_eyes = MagicMock()
-    w._chk_eyes.isChecked.return_value = False
+    w._gallery = MagicMock()
+    w._queue_list = MagicMock()
+    w._detail = MagicMock()
+    w._tabs = MagicMock()
+    w._load_originals = MagicMock()
+    runner = MagicMock()
+    runner.cancel.side_effect = _cancel
+    w._active_runner = runner
 
-    progress_values = []
+    w._set_queue([])
 
-    def fake_run_analysis(paths, params, callback):
-        for i in range(1, 4):
-            callback(i, 3)
-            progress_values.append(i)
-        return [{"filename": "a.png"}, {"filename": "b.png"}, {"filename": "c.png"}]
+    assert tokens_at_cancel == [2]  # token already bumped when cancel() was called
 
-    logic = MagicMock()
-    logic.preload_models.return_value = None
-    logic.run_analysis.side_effect = fake_run_analysis
-    w._logic = logic
 
-    # Stub out post-analysis methods to avoid attribute errors.
-    w._on_results_ready = MagicMock()
-    w._try_update_mrml_table = MagicMock()
+def test_set_queue_increments_run_token(widget_module):
+    """_set_queue must increment _run_token as its first action."""
+    w = object.__new__(widget_module.ZebrafishAnalysisMainWidget)
+    w._run_token = 5
+    w._image_paths = []
+    w._queue_list = MagicMock()
+    w._results = []
+    w._detail = MagicMock()
+    w._gallery = MagicMock()
+    w._tabs = MagicMock()
+    w._um_per_px = MagicMock()
 
-    w._run_analysis_after_models_ready("general", {}, token=1)
+    # _load_originals needs to be a no-op (it calls cv2 etc.)
+    w._load_originals = MagicMock()
 
-    assert progress_values == [1, 2, 3]
-    # setValue called with each per-image count.
-    set_value_calls = [c[0][0] for c in w._run_progress.setValue.call_args_list]
-    assert 1 in set_value_calls
-    assert 2 in set_value_calls
-    assert 3 in set_value_calls
+    w._set_queue([])
+
+    assert w._run_token == 6

@@ -94,6 +94,7 @@ class ZebrafishAnalysisMainWidget:
         self._updatingGUIFromParameterNode = False
         self._on_settings_changed = None  # callable set by ZebrafishAnalysisWidget
         self._active_downloader = None
+        self._active_runner = None
         self._disposed = False
         self._run_token = 0
 
@@ -257,7 +258,19 @@ class ZebrafishAnalysisMainWidget:
 
         self._run_stack = qt.QStackedWidget()
         self._run_stack.addWidget(self._btn_run)       # index 0 — idle
-        self._run_stack.addWidget(self._run_progress)  # index 1 — running
+
+        # Build the running-state widget: [progress bar | stop button]
+        _run_widget = qt.QWidget()
+        _run_hbox = qt.QHBoxLayout(_run_widget)
+        _run_hbox.setContentsMargins(0, 0, 0, 0)
+        _run_hbox.setSpacing(4)
+        _run_hbox.addWidget(self._run_progress)
+        self._btn_stop = qt.QPushButton("✕ Stop")
+        self._btn_stop.setFixedWidth(70)
+        self._btn_stop.setToolTip("Stop download or analysis")
+        _run_hbox.addWidget(self._btn_stop)
+        self._run_stack.addWidget(_run_widget)   # index 1 — running state
+
         vbox.addWidget(self._run_stack)
 
         export_box = ctk.ctkCollapsibleButton()
@@ -301,6 +314,7 @@ class ZebrafishAnalysisMainWidget:
         self._btn_detect_scale.clicked.connect(self._on_detect_scale)
         self._btn_apply_scale.clicked.connect(self._on_apply_scale)
         self._btn_run.clicked.connect(self._on_run)
+        self._btn_stop.clicked.connect(self._cancel_workers)
         self._btn_excel.clicked.connect(self._on_export_excel)
         self._btn_csv.clicked.connect(self._on_export_csv)
 
@@ -345,6 +359,15 @@ class ZebrafishAnalysisMainWidget:
             self._set_queue(sorted(paths))
 
     def _set_queue(self, paths):
+        self._run_token = getattr(self, "_run_token", 0) + 1
+        # Cancel any in-flight inference so the subprocess doesn't produce stale results.
+        if getattr(self, "_active_runner", None) is not None:
+            self._active_runner.cancel()
+            self._active_runner = None
+            try:
+                self._run_stack.setCurrentIndex(0)
+            except Exception:
+                pass
         import os
         self._image_paths = paths
         self._queue_list.clear()
@@ -520,7 +543,7 @@ class ZebrafishAnalysisMainWidget:
             self._start_model_download(missing, model_id, params, token)
             return
 
-        self._run_analysis_after_models_ready(model_id, params, token)
+        self._start_inference_process(model_id, params, token)
 
     def _start_model_download(self, missing, model_id, params, token):
         """Start an asynchronous Qt download and continue analysis only on success."""
@@ -567,7 +590,7 @@ class ZebrafishAnalysisMainWidget:
                         # A newer run superseded this one; clean up silently.
                         self._run_stack.setCurrentIndex(0)
                         return
-                    self._run_analysis_after_models_ready(model_id, params, token)
+                    self._start_inference_process(model_id, params, token)
 
                 qt.QTimer.singleShot(0, _deferred_analysis)
 
@@ -583,58 +606,56 @@ class ZebrafishAnalysisMainWidget:
             logging.exception("ZebrafishAnalysis: failed to start model download")
             slicer.util.errorDisplay(f"Could not start model download:\n{exc}")
 
-    def _run_analysis_after_models_ready(self, model_id, params, token):
-        """Load models after explicit Run Analysis, then run synchronous inference."""
-        if self._run_token != token:
-            return  # superseded by a newer run
-        n = len(self._image_paths)
-        import time as _time
-
-        self._run_progress.setRange(0, 100)
-        self._run_progress.setValue(0)
-        self._run_progress.setFormat("Loading models…")
-        self._run_stack.setCurrentIndex(1)   # switch to running view (hides Run button)
-
-        ok = False
+    def _start_inference_process(self, model_id, params, token):
+        """Launch analysis as a QProcess worker subprocess."""
+        if self._active_runner is not None:
+            slicer.util.warningDisplay("Analysis is already running.")
+            return
         try:
-            preload_params = {
-                "curvature": self._chk_curvature.isChecked(),
-                "eyes":      self._chk_eyes.isChecked(),
-                "model_id":  model_id,
-            }
-            self._logic.preload_models(preload_params)
+            originals = [r.get("original") for r in self._results]
+            image_paths = list(self._image_paths)
 
-            self._run_progress.setRange(0, n)
+            self._run_progress.setRange(0, len(image_paths))
             self._run_progress.setValue(0)
+            self._run_progress.setFormat("Running analysis…")
+            self._run_stack.setCurrentIndex(1)
 
-            _t0 = _time.time()
-
-            def _set_btn_progress(i, total):
+            def _on_progress(i, n):
+                self._run_progress.setRange(0, n)
                 self._run_progress.setValue(i)
-                elapsed = _time.time() - _t0
-                if i > 0 and total > i:
-                    remaining = elapsed / i * (total - i)
-                    eta = (f"~{int(remaining // 60)}m {int(remaining % 60):02d}s left"
-                           if remaining >= 60 else f"~{int(remaining)}s left")
-                    self._run_progress.setFormat(f"Image {i} / {total}  ·  {eta}")
-                else:
-                    self._run_progress.setFormat(f"Image {i} / {total}")
+                self._run_progress.setFormat(f"Running analysis… {i}/{n}")
 
-            self._results = self._logic.run_analysis(self._image_paths, params, _set_btn_progress)
-            ok = True
-        except AnalysisInputError as exc:
-            logging.warning("ZebrafishAnalysis: %s", exc)
-            slicer.util.warningDisplay(str(exc))
+            def _on_runner_finished(success, state, message, controller):
+                if self._disposed or controller is not self._active_runner:
+                    return
+                self._active_runner = None
+                if self._run_token != token:
+                    self._run_stack.setCurrentIndex(0)
+                    return
+                if not success:
+                    self._run_stack.setCurrentIndex(0)
+                    if state not in ("cancelled", "disposed"):
+                        slicer.util.errorDisplay(
+                            f"Analysis failed:\n{message or 'Unknown error'}"
+                        )
+                    return
+                self._results = controller.results
+                self._run_stack.setCurrentIndex(0)
+                self._on_results_ready()
+                self._try_update_mrml_table(self._results)
+
+            from ZebrafishAnalysisLib.inference_runner import start_inference
+            self._active_runner = start_inference(
+                image_paths, model_id, params, originals,
+                on_finished=_on_runner_finished,
+                on_progress=_on_progress,
+                parent=slicer.util.mainWindow(),
+            )
         except Exception as exc:
-            logging.exception("ZebrafishAnalysis: analysis failed")
-            slicer.util.errorDisplay(f"Analysis failed:\n\n{exc}")
-        finally:
-            # Always restore the idle view so the Run button comes back, even on failure.
+            self._active_runner = None
             self._run_stack.setCurrentIndex(0)
-
-        if ok:
-            self._on_results_ready()
-            self._try_update_mrml_table(self._results)
+            logging.exception("ZebrafishAnalysis: failed to start inference process")
+            slicer.util.errorDisplay(f"Could not start analysis:\n{exc}")
 
     def _try_update_mrml_table(self, results):
         """Update the MRML results table; log and show a status warning on failure."""
@@ -830,6 +851,9 @@ class ZebrafishAnalysisMainWidget:
         if getattr(self, "_active_downloader", None) is not None:
             self._active_downloader.cancel(silent=True)
             self._active_downloader = None
+        if getattr(self, "_active_runner", None) is not None:
+            self._active_runner.cancel()
+            self._active_runner = None
         if hasattr(self, "_run_stack"):
             self._run_stack.setCurrentIndex(0)
         self._results = []
@@ -859,6 +883,9 @@ class ZebrafishAnalysisMainWidget:
         if getattr(self, "_active_downloader", None) is not None:
             self._active_downloader.dispose()
             self._active_downloader = None
+        if getattr(self, "_active_runner", None) is not None:
+            self._active_runner.dispose()
+            self._active_runner = None
         self._results = []
         self._detail.cleanup()  # invalidates cache
 
