@@ -88,6 +88,9 @@ class ZebrafishAnalysisWidget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         self._register_scene_observers()
         self.initializeParameterNode()
 
+        if self._main is not None:
+            self._main.apply_shell_layout()
+
     def _register_scene_observers(self):
         """Register MRML scene observers exactly once per setup."""
         if self._sceneObserversRegistered:
@@ -112,9 +115,12 @@ class ZebrafishAnalysisWidget(ScriptedLoadableModuleWidget, VTKObservationMixin)
     def enter(self):
         if hasattr(self, "logic"):
             self.initializeParameterNode()
+        if self._main is not None:
+            self._main.apply_shell_layout()
 
     def exit(self):
-        pass
+        if self._main is not None:
+            self._main.restore_shell_layout()
 
     def _check_deps_on_start(self):
         if self._main is not None:
@@ -127,6 +133,7 @@ class ZebrafishAnalysisWidget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         self.removeObservers()
         self._sceneObserversRegistered = False
         if self._main is not None:
+            self._main.restore_shell_layout()  # ensure restore even on reload (exit() not called)
             self._main.cleanup()
 
     # ------------------------------------------------------------------

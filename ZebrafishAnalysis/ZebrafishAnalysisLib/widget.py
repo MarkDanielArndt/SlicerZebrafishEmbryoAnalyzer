@@ -59,34 +59,6 @@ class ZebrafishAnalysisMainWidget:
     def __init__(self, parent_layout, logic):
         self._logic = logic
 
-        slicer.app.layoutManager().setLayout(
-            slicer.vtkMRMLLayoutNode.SlicerLayoutOneUpRedSliceView
-        )
-
-        _mw = slicer.util.mainWindow()
-
-        # Bottom dock spans full width (corners go to bottom area, not left/right)
-        _mw.setCorner(qt.Qt.BottomLeftCorner,  qt.Qt.BottomDockWidgetArea)
-        _mw.setCorner(qt.Qt.BottomRightCorner, qt.Qt.BottomDockWidgetArea)
-
-        # Dock Python console below everything
-        _pyDock = _mw.findChild(qt.QDockWidget, "PythonConsoleDockWidget")
-        if _pyDock:
-            _pyDock.setFloating(False)
-            _mw.addDockWidget(qt.Qt.BottomDockWidgetArea, _pyDock)
-            _pyDock.setMinimumHeight(1)
-            inner = _pyDock.widget()
-            if inner:
-                for w in [inner] + list(inner.findChildren(qt.QWidget)):
-                    w.setMinimumHeight(0)
-                    sp = w.sizePolicy
-                    sp.setVerticalPolicy(qt.QSizePolicy.Ignored)
-                    w.setSizePolicy(sp)
-
-        # Collapse the central slice view and expand module panel to full width.
-        # Deferred so the window geometry is finalised before resizing.
-        qt.QTimer.singleShot(0, self._expand_panel)
-
         self._results = []
         self._excluded = set()
         self._image_paths = []
@@ -97,6 +69,12 @@ class ZebrafishAnalysisMainWidget:
         self._active_runner = None
         self._disposed = False
         self._run_token = 0
+
+        self._saved_layout_id = None
+        self._saved_central_visible = None
+        self._saved_pydock_floating = None
+        self._saved_pydock_dock_area = None
+        self._saved_dataprobe_collapsed = None
 
         self._build_ui(parent_layout)
         self._connect_signals()
@@ -117,6 +95,108 @@ class ZebrafishAnalysisMainWidget:
         dataProbe = mw.findChild(ctk.ctkCollapsibleButton, "DataProbeCollapsibleWidget")
         if dataProbe:
             dataProbe.collapsed = True
+
+    def apply_shell_layout(self):
+        """Save current Slicer shell state and apply module-specific layout.
+
+        Called from ZebrafishAnalysisWidget.enter(). Must be paired with
+        restore_shell_layout() in exit() so the host application is not
+        permanently altered.
+        """
+        # Guard: prevent double-application and wrong state capture.
+        # If _saved_layout_id is already set, layout was already applied — return.
+        if self._saved_layout_id is not None:
+            return
+        try:
+            mw = slicer.util.mainWindow()
+
+            # -- Save current state ------------------------------------------------
+            self._saved_layout_id = slicer.app.layoutManager().layout
+
+            central = mw.centralWidget()
+            self._saved_central_visible = central.isVisible() if central else True
+
+            _pyDock = mw.findChild(qt.QDockWidget, "PythonConsoleDockWidget")
+            if _pyDock:
+                self._saved_pydock_floating = _pyDock.isFloating()
+                self._saved_pydock_dock_area = mw.dockWidgetArea(_pyDock)
+            else:
+                self._saved_pydock_floating = None
+                self._saved_pydock_dock_area = None
+
+            dataProbe = mw.findChild(ctk.ctkCollapsibleButton, "DataProbeCollapsibleWidget")
+            self._saved_dataprobe_collapsed = dataProbe.collapsed if dataProbe else None
+
+            # -- Apply module-specific shell layout --------------------------------
+            slicer.app.layoutManager().setLayout(
+                slicer.vtkMRMLLayoutNode.SlicerLayoutOneUpRedSliceView
+            )
+
+            mw.setCorner(qt.Qt.BottomLeftCorner,  qt.Qt.BottomDockWidgetArea)
+            mw.setCorner(qt.Qt.BottomRightCorner, qt.Qt.BottomDockWidgetArea)
+
+            if _pyDock:
+                _pyDock.setFloating(False)
+                mw.addDockWidget(qt.Qt.BottomDockWidgetArea, _pyDock)
+                _pyDock.setMinimumHeight(1)
+                inner = _pyDock.widget()
+                if inner:
+                    for w in [inner] + list(inner.findChildren(qt.QWidget)):
+                        w.setMinimumHeight(0)
+                        sp = w.sizePolicy
+                        sp.setVerticalPolicy(qt.QSizePolicy.Ignored)
+                        w.setSizePolicy(sp)
+
+            qt.QTimer.singleShot(0, self._expand_panel)
+        except Exception:
+            pass
+
+    def restore_shell_layout(self):
+        """Restore Slicer shell state saved in apply_shell_layout().
+
+        Called from ZebrafishAnalysisWidget.exit(). Safe to call even if
+        apply_shell_layout() was never called.
+        """
+        try:
+            mw = slicer.util.mainWindow()
+
+            # Restore layout
+            if self._saved_layout_id is not None:
+                slicer.app.layoutManager().setLayout(self._saved_layout_id)
+
+            # Restore central widget visibility
+            central = mw.centralWidget()
+            if central:
+                central.setMinimumWidth(0)
+                if self._saved_central_visible:
+                    central.show()
+
+            # Restore corner settings to Slicer defaults
+            mw.setCorner(qt.Qt.BottomLeftCorner,  qt.Qt.LeftDockWidgetArea)
+            mw.setCorner(qt.Qt.BottomRightCorner, qt.Qt.RightDockWidgetArea)
+
+            # Restore Python console dock position
+            _pyDock = mw.findChild(qt.QDockWidget, "PythonConsoleDockWidget")
+            if _pyDock and self._saved_pydock_floating is not None:
+                if self._saved_pydock_floating:
+                    _pyDock.setFloating(True)
+                elif self._saved_pydock_dock_area is not None:
+                    mw.addDockWidget(self._saved_pydock_dock_area, _pyDock)
+
+            # Restore DataProbe collapsed state
+            if self._saved_dataprobe_collapsed is not None:
+                dataProbe = mw.findChild(ctk.ctkCollapsibleButton, "DataProbeCollapsibleWidget")
+                if dataProbe:
+                    dataProbe.collapsed = self._saved_dataprobe_collapsed
+
+            # Clear saved state so a double-call is a no-op
+            self._saved_layout_id = None
+            self._saved_central_visible = None
+            self._saved_pydock_floating = None
+            self._saved_pydock_dock_area = None
+            self._saved_dataprobe_collapsed = None
+        except Exception:
+            pass
 
     def _build_ui(self, layout):
         layout.setAlignment(qt.Qt.Alignment())  # clear AlignTop set by Slicer base class

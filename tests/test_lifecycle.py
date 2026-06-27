@@ -870,3 +870,158 @@ def test_no_new_mrml_node_references():
         assert not mrml_refs, (
             f"{method}() introduces MRML node references: {mrml_refs} — D1 must not add MRML nodes"
         )
+
+
+# ---------------------------------------------------------------------------
+# H1 — shell layout save/restore (source-level and behavioral)
+# ---------------------------------------------------------------------------
+
+def test_widget_init_has_no_set_layout_call():
+    """__init__ must not call setLayout — that is done in apply_shell_layout."""
+    import ast
+    from pathlib import Path
+    source = (Path(__file__).parent.parent /
+              "ZebrafishAnalysis" / "ZebrafishAnalysisLib" / "widget.py").read_text()
+    tree = ast.parse(source)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == "__init__":
+            for child in ast.walk(node):
+                if isinstance(child, ast.Call):
+                    text = ast.unparse(child)
+                    assert "setLayout" not in text, (
+                        f"__init__ must not call setLayout (line {child.lineno}): {text}"
+                    )
+
+
+def test_apply_shell_layout_method_exists():
+    import ast
+    from pathlib import Path
+    source = (Path(__file__).parent.parent /
+              "ZebrafishAnalysis" / "ZebrafishAnalysisLib" / "widget.py").read_text()
+    tree = ast.parse(source)
+    names = {n.name for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)}
+    assert "apply_shell_layout" in names
+    assert "restore_shell_layout" in names
+
+
+def test_restore_shell_layout_safe_without_prior_apply():
+    """restore_shell_layout must not raise if apply_shell_layout was never called."""
+    import sys
+    import types
+    from unittest.mock import MagicMock
+    import importlib
+
+    # Build a minimal stub environment for widget.py
+    qt_mock = MagicMock()
+    ctk_mock = MagicMock()
+    slicer_mock = MagicMock()
+    slicer_mock.util.mainWindow.return_value = None
+
+    saved = {}
+    for mod in ("qt", "ctk", "slicer"):
+        saved[mod] = sys.modules.get(mod)
+    sys.modules["qt"] = qt_mock
+    sys.modules["ctk"] = ctk_mock
+    sys.modules["slicer"] = slicer_mock
+
+    try:
+        import ZebrafishAnalysisLib.widget as _wm
+        _wm = importlib.reload(_wm)
+        w = object.__new__(_wm.ZebrafishAnalysisMainWidget)
+        w._saved_layout_id = None
+        w._saved_central_visible = None
+        w._saved_pydock_floating = None
+        w._saved_pydock_dock_area = None
+        w._saved_dataprobe_collapsed = None
+        # Must not raise
+        w.restore_shell_layout()
+    finally:
+        for mod, val in saved.items():
+            if val is None:
+                sys.modules.pop(mod, None)
+            else:
+                sys.modules[mod] = val
+
+
+def test_enter_calls_apply_shell_layout():
+    """ZebrafishAnalysisWidget.enter() must call apply_shell_layout on _main."""
+    import ast
+    from pathlib import Path
+    source = (Path(__file__).parent.parent /
+              "ZebrafishAnalysis" / "ZebrafishAnalysis.py").read_text()
+    tree = ast.parse(source)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == "enter":
+            body_text = ast.unparse(node)
+            assert "apply_shell_layout" in body_text, (
+                "enter() must call apply_shell_layout"
+            )
+            return
+    assert False, "enter() method not found"
+
+
+def test_exit_calls_restore_shell_layout():
+    """ZebrafishAnalysisWidget.exit() must call restore_shell_layout on _main."""
+    import ast
+    from pathlib import Path
+    source = (Path(__file__).parent.parent /
+              "ZebrafishAnalysis" / "ZebrafishAnalysis.py").read_text()
+    tree = ast.parse(source)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == "exit":
+            body_text = ast.unparse(node)
+            assert "restore_shell_layout" in body_text, (
+                "exit() must call restore_shell_layout"
+            )
+            return
+    assert False, "exit() method not found"
+
+
+def test_cleanup_calls_restore_shell_layout():
+    """cleanup() must call restore_shell_layout() so reload does not corrupt saved state."""
+    import ast
+    from pathlib import Path
+    source = (Path(__file__).parent.parent / "ZebrafishAnalysis" / "ZebrafishAnalysis.py").read_text()
+    tree = ast.parse(source)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == "cleanup":
+            body_text = ast.unparse(node)
+            assert "restore_shell_layout" in body_text, (
+                "cleanup() must call restore_shell_layout() to handle module reload correctly"
+            )
+            return
+    assert False, "cleanup() method not found in ZebrafishAnalysis.py"
+
+
+def test_apply_shell_layout_is_idempotent():
+    """Second call to apply_shell_layout() must be a no-op when already applied."""
+    import ast
+    from pathlib import Path
+    source = (Path(__file__).parent.parent /
+              "ZebrafishAnalysis" / "ZebrafishAnalysisLib" / "widget.py").read_text()
+    tree = ast.parse(source)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == "apply_shell_layout":
+            body_text = ast.unparse(node)
+            # The guard must reference _saved_layout_id and return early
+            assert "_saved_layout_id" in body_text
+            assert "return" in body_text
+            return
+    assert False, "apply_shell_layout() method not found"
+
+
+def test_setup_calls_apply_shell_layout():
+    """setup() must call apply_shell_layout() to handle the reload case."""
+    import ast
+    from pathlib import Path
+    source = (Path(__file__).parent.parent /
+              "ZebrafishAnalysis" / "ZebrafishAnalysis.py").read_text()
+    tree = ast.parse(source)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == "setup":
+            body_text = ast.unparse(node)
+            assert "apply_shell_layout" in body_text, (
+                "setup() must call apply_shell_layout() to handle module reload"
+            )
+            return
+    assert False, "setup() method not found"
