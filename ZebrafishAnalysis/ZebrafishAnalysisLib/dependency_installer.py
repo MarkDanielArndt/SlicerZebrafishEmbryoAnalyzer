@@ -51,19 +51,37 @@ def get_missing_packages() -> dict:
     }
 
 
+def _pip_install(args_str: str) -> None:
+    """Run pip install via subprocess, bypassing slicer.util.pip_install.
+
+    This avoids the automatic Slicer pip-progress dialog that appears in
+    Slicer 5.12+ when slicer.util.pip_install is called.
+    Raises RuntimeError on non-zero exit.
+    """
+    import subprocess
+    import sys
+    result = subprocess.run(
+        [sys.executable, "-m", "pip", "install"] + args_str.split(),
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr[-2000:] if result.stderr else result.stdout[-2000:])
+
+
 def install_packages(missing: dict, pip_fn=None) -> None:
     """
-    Install missing packages via slicer.util.pip_install.
+    Install missing packages via subprocess pip, showing only our custom progress dialog.
     Only called from an explicit user action. Never called at setup time.
     missing: dict from get_missing_packages()
-    pip_fn: injectable for testing (default: slicer.util.pip_install)
+    pip_fn: injectable for testing (default: _pip_install)
     """
     import slicer
     if slicer.app.testingEnabled():
         return
 
     if pip_fn is None:
-        pip_fn = slicer.util.pip_install
+        pip_fn = _pip_install
 
     import qt
     import logging
@@ -120,7 +138,7 @@ def install_packages(missing: dict, pip_fn=None) -> None:
         progress.setValue(step)
         slicer.app.processEvents()
         try:
-            pip_fn('"numpy<2"')
+            pip_fn('numpy<2')
         except Exception as exc:
             logging.exception("Failed to pin numpy<2: %s", exc)
             errors.append(f"numpy<2: {exc}")

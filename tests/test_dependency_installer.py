@@ -125,8 +125,8 @@ def test_install_packages_pins_numpy_when_torch_ok(monkeypatch):
     )
 
     calls = [str(c) for c in pip_fn.call_args_list]
-    assert any('"numpy<2"' in c for c in calls), (
-        f"Expected pip_fn called with '\"numpy<2\"', got: {calls}"
+    assert any("numpy<2" in c for c in calls), (
+        f"Expected pip_fn called with 'numpy<2', got: {calls}"
     )
 
 
@@ -190,8 +190,8 @@ def test_install_packages_numpy_pin_when_torch_preexisting(monkeypatch):
     )
 
     calls = [str(c) for c in pip_fn.call_args_list]
-    assert any('"numpy<2"' in c for c in calls), (
-        f"Expected pip_fn called with '\"numpy<2\"', got: {calls}"
+    assert any("numpy<2" in c for c in calls), (
+        f"Expected pip_fn called with 'numpy<2', got: {calls}"
     )
 
 
