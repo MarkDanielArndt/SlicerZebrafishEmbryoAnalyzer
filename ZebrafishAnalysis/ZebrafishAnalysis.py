@@ -363,6 +363,8 @@ class ZebrafishAnalysisLogic(ScriptedLoadableModuleLogic):
             # no node is created and no reference is stored.
             completed_table = build_vtk_table(rows)
             param_node = self.getParameterNode()
+            if param_node is None:
+                return None
             table_node = get_or_create_table_node(param_node, slicer.mrmlScene)
             table_node.SetAndObserveTable(completed_table)
             return table_node
@@ -392,6 +394,8 @@ class ZebrafishAnalysisLogic(ScriptedLoadableModuleLogic):
                 update_image_node,
             )
             param_node = self.getParameterNode()
+            if param_node is None:
+                return None
             node = get_or_create_image_node(param_node, slicer.mrmlScene)
             update_image_node(original, um_per_px, node)
             return node
@@ -420,6 +424,8 @@ class ZebrafishAnalysisLogic(ScriptedLoadableModuleLogic):
                 update_segmentation_node,
             )
             param_node = self.getParameterNode()
+            if param_node is None:
+                return None
             image_node = param_node.GetNodeReference("CurrentImage")
             node = get_or_create_segmentation_node(param_node, slicer.mrmlScene)
             update_segmentation_node(result, um_per_px, node, image_node=image_node)

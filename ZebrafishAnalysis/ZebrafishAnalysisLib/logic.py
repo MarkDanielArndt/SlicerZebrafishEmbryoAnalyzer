@@ -11,6 +11,7 @@ Export functions (export_excel, export_csv) live in export.py.
 """
 
 import os
+import shutil
 import tempfile
 
 _ML_PACKAGES = ("torch", "cv2", "segmentation_models_pytorch", "timm")
@@ -265,7 +266,10 @@ def analyse_images(image_paths: list, params: dict,
         try:
             # Segment this single image — model already cached, no disk reload
             with tempfile.TemporaryDirectory() as _tmp:
-                os.symlink(image_path, os.path.join(_tmp, os.path.basename(image_path)))
+                # copy2 instead of symlink: os.symlink requires admin rights on
+                # Windows; copy2 is portable and the temp dir is cleaned up
+                # immediately after segmentation_pipeline returns.
+                shutil.copy2(image_path, os.path.join(_tmp, os.path.basename(image_path)))
                 seg_result = segmentation_pipeline(_tmp, **_seg_kwargs)
 
             if include_eyes and len(seg_result) == 4:
