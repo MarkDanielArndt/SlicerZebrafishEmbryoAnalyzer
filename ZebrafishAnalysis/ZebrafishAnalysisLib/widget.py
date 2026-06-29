@@ -341,9 +341,18 @@ class ZebrafishAnalysisMainWidget:
         self._run_stack = qt.QStackedWidget()
         self._run_stack.addWidget(self._btn_run)       # index 0 — idle
 
-        # Build the running-state widget: [progress bar | stop button]
+        # Build the running-state widget: status label on top, [progress bar | stop] below
         _run_widget = qt.QWidget()
-        _run_hbox = qt.QHBoxLayout(_run_widget)
+        _run_vbox = qt.QVBoxLayout(_run_widget)
+        _run_vbox.setContentsMargins(0, 0, 0, 0)
+        _run_vbox.setSpacing(2)
+
+        self._run_status_label = qt.QLabel("Loading models…")
+        self._run_status_label.setStyleSheet("color: #ccc; font-size: 11px;")
+        self._run_status_label.setAlignment(qt.Qt.AlignCenter)
+        _run_vbox.addWidget(self._run_status_label)
+
+        _run_hbox = qt.QHBoxLayout()
         _run_hbox.setContentsMargins(0, 0, 0, 0)
         _run_hbox.setSpacing(4)
         _run_hbox.addWidget(self._run_progress)
@@ -351,6 +360,8 @@ class ZebrafishAnalysisMainWidget:
         self._btn_stop.setFixedWidth(70)
         self._btn_stop.setToolTip("Stop download or analysis")
         _run_hbox.addWidget(self._btn_stop)
+        _run_vbox.addLayout(_run_hbox)
+
         self._run_stack.addWidget(_run_widget)   # index 1 — running state
 
         vbox.addWidget(self._run_stack)
@@ -632,9 +643,10 @@ class ZebrafishAnalysisMainWidget:
             return
 
         try:
+            self._run_status_label.setText("Downloading models…")
             self._run_progress.setRange(0, 100)
             self._run_progress.setValue(0)
-            self._run_progress.setFormat("Downloading models...")
+            self._run_progress.setFormat("")
             self._run_stack.setCurrentIndex(1)
 
             from ZebrafishAnalysisLib.model_downloader import start_model_download
@@ -654,9 +666,9 @@ class ZebrafishAnalysisMainWidget:
                     return
                 # Download succeeded. Set up "Loading models…" state now so it can
                 # render during the one event-loop cycle we defer by below.
-                self._run_progress.setRange(0, 100)
-                self._run_progress.setValue(0)
-                self._run_progress.setFormat("Loading models…")
+                self._run_status_label.setText("Loading models…")
+                self._run_progress.setRange(0, 0)
+                self._run_progress.setFormat("")
                 # Keep _run_stack at index 1 (running view); do NOT reset to 0 here.
                 # Schedule analysis for the next event-loop iteration. This gives
                 # the download dialog one cycle to close and the "Loading models…"
@@ -695,15 +707,16 @@ class ZebrafishAnalysisMainWidget:
             originals = [r.get("original") for r in self._results]
             image_paths = list(self._image_paths)
 
-            self._run_progress.setRange(0, len(image_paths))
-            self._run_progress.setValue(0)
-            self._run_progress.setFormat("Running analysis…")
+            self._run_status_label.setText("Loading models…")
+            self._run_progress.setRange(0, 0)   # native Qt marquee: fixed chunk moves left→right
+            self._run_progress.setFormat("")    # text shown in label above, not in bar
             self._run_stack.setCurrentIndex(1)
 
             def _on_progress(i, n):
+                self._run_status_label.setText(f"Running analysis…  {i} / {n}")
                 self._run_progress.setRange(0, n)
                 self._run_progress.setValue(i)
-                self._run_progress.setFormat(f"Running analysis… {i}/{n}")
+                self._run_progress.setFormat("")
 
             def _on_runner_finished(success, state, message, controller):
                 if self._disposed or controller is not self._active_runner:

@@ -163,6 +163,7 @@ def test_downloader_success_rechecks_cache_before_analysis(widget_module):
     w._run_token = 1
     w._run_progress = MagicMock()
     w._run_stack = MagicMock()
+    w._run_status_label = MagicMock()
     w._missing_required_models = MagicMock(return_value=[])
     w._start_inference_process = MagicMock()
     missing = [{"label": "Body"}]
@@ -198,6 +199,7 @@ def test_downloader_failure_does_not_start_analysis(widget_module):
     w._run_token = 1
     w._run_progress = MagicMock()
     w._run_stack = MagicMock()
+    w._run_status_label = MagicMock()
     w._missing_required_models = MagicMock(return_value=[])
     w._start_inference_process = MagicMock()
     controller = MagicMock()
@@ -227,6 +229,7 @@ def _make_download_widget(widget_module, token=1):
     w._run_token = token
     w._run_progress = MagicMock()
     w._run_stack = MagicMock()
+    w._run_status_label = MagicMock()
     w._missing_required_models = MagicMock(return_value=[])
     w._start_inference_process = MagicMock()
     return w
