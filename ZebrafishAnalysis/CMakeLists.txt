@@ -13,7 +13,6 @@ slicerMacroBuildScriptedModule(
     ZebrafishAnalysisLib/model_downloader.py
     ZebrafishAnalysisLib/model_manifest.py
     ZebrafishAnalysisLib/mrml.py
-    ZebrafishAnalysisLib/exclude_tab.py
     ZebrafishAnalysisLib/export.py
     ZebrafishAnalysisLib/gallery_tab.py
     ZebrafishAnalysisLib/logic.py

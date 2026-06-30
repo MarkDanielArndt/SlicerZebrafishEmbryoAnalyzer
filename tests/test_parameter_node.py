@@ -1322,8 +1322,7 @@ def test_reset_for_scene_close_preserves_existing_session_resets():
         assert w._results     == [], f"results not cleared: {w._results}"
         w._queue_list.clear.assert_called_once()
         w._gallery.populate.assert_called_with([])
-        w._results_tab.populate.assert_called_with([])
-        w._exclude_tab.populate.assert_called_with([])
+        w._results_tab.populate.assert_called_with([], set())
         w._run_stack.setCurrentIndex.assert_called_with(0)
         print("OK")
     """)

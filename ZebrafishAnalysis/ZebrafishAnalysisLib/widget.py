@@ -2,7 +2,7 @@
 Main widget for the ZebrafishAnalysis Slicer extension.
 
 Left panel: input, analysis toggles, model selection, scalebar, run, export.
-Right panel: QTabWidget with Gallery / Detail / Results / Exclude tabs.
+Right panel: QTabWidget with Gallery / Detail / Results tabs.
 """
 
 import logging
@@ -389,17 +389,14 @@ class ZebrafishAnalysisMainWidget:
             on_navigate=self._navigate_detail,
             on_back=lambda: self._tabs.setCurrentIndex(0),
             logic=self._logic,
+            on_exclude_change=self._on_exclude_change,
         )
         self._detail._params_getter = self._get_correction_params
         self._tabs.addTab(self._detail, "Detail")
 
         from ZebrafishAnalysisLib.results_tab import ResultsTab
-        self._results_tab = ResultsTab()
+        self._results_tab = ResultsTab(on_exclude_change=self._on_exclude_change)
         self._tabs.addTab(self._results_tab, "Results")
-
-        from ZebrafishAnalysisLib.exclude_tab import ExcludeTab
-        self._exclude_tab = ExcludeTab(on_change=lambda exc: setattr(self, "_excluded", exc))
-        self._tabs.addTab(self._exclude_tab, "Exclude")
 
     def _connect_signals(self):
         self._btn_folder.clicked.connect(self._on_load_folder)
@@ -790,10 +787,20 @@ class ZebrafishAnalysisMainWidget:
             "threshold": float(self._threshold_slider.value),
         }
 
+    def _on_exclude_change(self, filename: str, checked: bool) -> None:
+        if checked:
+            self._excluded.add(filename)
+        else:
+            self._excluded.discard(filename)
+        self._results_tab.sync_exclude(self._excluded)
+        self._detail.sync_exclude(filename in self._excluded)
+
     def _on_gallery_select(self, index: int):
         self._current_detail_idx = index
         self._tabs.setCurrentIndex(1)
         self._detail.show_result(index, self._results)
+        if index < len(self._results):
+            self._detail.sync_exclude(self._results[index]["filename"] in self._excluded)
         self._detail.setFocus()
         if index < len(self._results):
             self._try_update_mrml_image(self._results[index])
@@ -1103,8 +1110,7 @@ class ZebrafishAnalysisMainWidget:
         self._detail.reset()
         self._queue_list.clear()
         self._gallery.populate([])
-        self._results_tab.populate([])
-        self._exclude_tab.populate([])
+        self._results_tab.populate([], set())
         self._run_stack.setCurrentIndex(0)
         # Scale-bar temporary state. _um_per_px is intentionally not reset here;
         # the caller syncs it from the new parameter node immediately after.
@@ -1127,8 +1133,9 @@ class ZebrafishAnalysisMainWidget:
     def _on_results_ready(self):
         self._detail.invalidate_cache()
         self._gallery.populate(self._results)
-        self._results_tab.populate(self._results)
-        self._exclude_tab.populate(self._results)
+        # Auto-exclude error rows so the visual state and export filter are consistent.
+        self._excluded |= {r["filename"] for r in self._results if r.get("error")}
+        self._results_tab.populate(self._results, self._excluded)
         self._tabs.setCurrentIndex(0)
         errors = [r for r in self._results if r.get("error")]
         if errors:

@@ -30,11 +30,13 @@ def _build_rgb_array(result: dict) -> np.ndarray:
 
 
 class DetailTab(qt.QWidget):
-    def __init__(self, on_navigate=None, on_back=None, logic=None):
+    def __init__(self, on_navigate=None, on_back=None, logic=None, on_exclude_change=None):
         super().__init__()
         self._on_navigate = on_navigate
         self._on_back = on_back
         self._logic = logic
+        self._on_exclude_change = on_exclude_change  # callable(filename, checked)
+        self._current_filename = None
         self._full_pixmap = None
         self._results = []
         self._current_idx = 0
@@ -76,6 +78,11 @@ class DetailTab(qt.QWidget):
         self._btn_prev.clicked.connect(lambda: self._on_navigate and self._on_navigate(-1))
         self._btn_next.clicked.connect(lambda: self._on_navigate and self._on_navigate(1))
 
+        # Exclude checkbox
+        self._chk_exclude = qt.QCheckBox("Exclude from export")
+        self._chk_exclude.setEnabled(False)
+        self._chk_exclude.toggled.connect(self._on_exclude_toggled)
+
         # Metrics label
         self._metrics_label = qt.QLabel("")
         self._metrics_label.setWordWrap(True)
@@ -104,6 +111,7 @@ class DetailTab(qt.QWidget):
         layout.addWidget(self._manual_row_widget, 0)
         layout.addWidget(self._manual_status, 0)
         layout.addLayout(_nav_row, 0)
+        layout.addWidget(self._chk_exclude, 0)
         layout.addWidget(self._metrics_label, 0)
 
         self._btn_prev.setEnabled(False)
@@ -125,6 +133,8 @@ class DetailTab(qt.QWidget):
         self._results = results
         self._current_idx = index
         result = results[index]
+        self._current_filename = result["filename"]
+        self._chk_exclude.setEnabled(True)
 
         self._metrics_label.setText(_format_metrics(result))
 
@@ -168,11 +178,18 @@ class DetailTab(qt.QWidget):
         """Call after a new batch run so stale pixmaps are discarded."""
         self._cache.clear()
 
+    def sync_exclude(self, is_excluded: bool) -> None:
+        """Update exclude checkbox state without firing callbacks."""
+        self._chk_exclude.blockSignals(True)
+        self._chk_exclude.setChecked(is_excluded)
+        self._chk_exclude.blockSignals(False)
+
     def reset(self):
         """Clear all visible and internal state after scene close."""
         self.invalidate_cache()
         self._results = []
         self._current_idx = 0
+        self._current_filename = None
         self._full_pixmap = None
         self._manual_mode = False
         self._manual_points = []
@@ -184,10 +201,18 @@ class DetailTab(qt.QWidget):
         self._btn_next.setEnabled(False)
         self._manual_row_widget.setVisible(False)
         self._manual_status.setVisible(False)
+        self._chk_exclude.blockSignals(True)
+        self._chk_exclude.setChecked(False)
+        self._chk_exclude.setEnabled(False)
+        self._chk_exclude.blockSignals(False)
 
     def cleanup(self):
         """Invalidate cache."""
         self.invalidate_cache()
+
+    def _on_exclude_toggled(self, checked: bool) -> None:
+        if self._current_filename and self._on_exclude_change:
+            self._on_exclude_change(self._current_filename, checked)
 
     def _update_nav_state(self) -> None:
         n = len(self._results)

@@ -621,6 +621,8 @@ def test_detail_tab_reset_shows_placeholder():
         d._btn_next = MagicMock()
         d._manual_row_widget = MagicMock()
         d._manual_status = MagicMock()
+        d._chk_exclude = MagicMock()
+        d._current_filename = None
 
         d.reset()
 
@@ -657,6 +659,8 @@ def test_detail_tab_reset_clears_texts_and_labels():
         d._btn_next = MagicMock()
         d._manual_row_widget = MagicMock()
         d._manual_status = MagicMock()
+        d._chk_exclude = MagicMock()
+        d._current_filename = None
 
         d.reset()
 
@@ -690,6 +694,8 @@ def test_detail_tab_reset_disables_navigation_and_clears_index():
         d._btn_next = btn_next
         d._manual_row_widget = MagicMock()
         d._manual_status = MagicMock()
+        d._chk_exclude = MagicMock()
+        d._current_filename = None
 
         d.reset()
 
@@ -722,6 +728,8 @@ def test_detail_tab_reset_invalidates_cache_without_worker_state():
         d._btn_next = MagicMock()
         d._manual_row_widget = MagicMock()
         d._manual_status = MagicMock()
+        d._chk_exclude = MagicMock()
+        d._current_filename = None
 
         d.reset()
 
@@ -760,6 +768,8 @@ def test_detail_tab_show_result_builds_selected_pixmap_only():
         d._btn_next = MagicMock()
         d._nav_label = MagicMock()
         d._pending_reset_zoom = True
+        d._chk_exclude = MagicMock()
+        d._current_filename = None
 
         import ZebrafishAnalysisLib.detail_tab as _dt
         _dt._build_rgb_array = lambda result: result["rgb"]
@@ -797,6 +807,8 @@ def test_detail_tab_reset_does_not_reference_poll_timer():
         d._btn_next = MagicMock()
         d._manual_row_widget = MagicMock()
         d._manual_status = MagicMock()
+        d._chk_exclude = MagicMock()
+        d._current_filename = None
         mock_timer = MagicMock()
         d._poll_timer = mock_timer
 
@@ -837,6 +849,8 @@ def test_detail_tab_accepts_new_results_after_reset():
         d._logic = MagicMock()
         d._btn_revert_auto = MagicMock()
         d._btn_manual_adjust = MagicMock()
+        d._chk_exclude = MagicMock()
+        d._current_filename = None
 
         # Reset first, then call show_result with fresh data.
         d.reset()
