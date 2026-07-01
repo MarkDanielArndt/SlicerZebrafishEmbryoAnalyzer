@@ -434,7 +434,7 @@ class ZebrafishEmbryoAnalyzerMainWidget:
         paths = sorted([
             os.path.join(folder, f)
             for f in os.listdir(folder)
-            if os.path.splitext(f)[1].lower() in exts
+            if os.path.splitext(f)[1].lower() in exts and not f.startswith(".")
         ])
         self._set_queue(paths)
 
@@ -469,7 +469,9 @@ class ZebrafishEmbryoAnalyzerMainWidget:
                           "mask": None, "error": None, "length": None})
 
         self._results = stubs
-        self._detail.invalidate_cache()
+        self._excluded = set()
+        self._detail.reset()
+        self._results_tab.populate([], set())
         self._gallery.populate(stubs)
         self._tabs.setCurrentIndex(0)
 

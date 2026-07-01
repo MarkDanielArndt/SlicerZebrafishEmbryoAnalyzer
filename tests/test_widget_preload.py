@@ -360,6 +360,8 @@ def test_set_queue_cancels_active_runner(widget_module):
     w._gallery = MagicMock()
     w._queue_list = MagicMock()
     w._detail = MagicMock()
+    w._excluded = set()
+    w._results_tab = MagicMock()
     w._tabs = MagicMock()
     w._btn_run = MagicMock()
     w._load_originals = MagicMock()
@@ -385,6 +387,8 @@ def test_set_queue_bumps_token_before_cancel(widget_module):
     w._gallery = MagicMock()
     w._queue_list = MagicMock()
     w._detail = MagicMock()
+    w._excluded = set()
+    w._results_tab = MagicMock()
     w._tabs = MagicMock()
     w._btn_run = MagicMock()
     w._load_originals = MagicMock()
@@ -405,7 +409,9 @@ def test_set_queue_increments_run_token(widget_module):
     w._image_paths = []
     w._queue_list = MagicMock()
     w._results = []
+    w._excluded = set()
     w._detail = MagicMock()
+    w._results_tab = MagicMock()
     w._gallery = MagicMock()
     w._tabs = MagicMock()
     w._um_per_px = MagicMock()

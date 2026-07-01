@@ -75,7 +75,9 @@ def test_set_queue_empty_disables_run_button(widget_module):
     w._btn_run = MagicMock()
     w._queue_list = MagicMock()
     w._results = []
+    w._excluded = set()
     w._detail = MagicMock()
+    w._results_tab = MagicMock()
     w._gallery = MagicMock()
     w._tabs = MagicMock()
     w._um_per_px = MagicMock()
@@ -97,7 +99,9 @@ def test_set_queue_with_images_enables_run_button(widget_module):
     w._btn_run = MagicMock()
     w._queue_list = MagicMock()
     w._results = []
+    w._excluded = set()
     w._detail = MagicMock()
+    w._results_tab = MagicMock()
     w._gallery = MagicMock()
     w._tabs = MagicMock()
     w._um_per_px = MagicMock()
@@ -127,7 +131,9 @@ def test_set_queue_does_not_enable_button_when_deps_missing(widget_module):
     w._btn_run = MagicMock()
     w._queue_list = MagicMock()
     w._results = []
+    w._excluded = set()
     w._detail = MagicMock()
+    w._results_tab = MagicMock()
     w._gallery = MagicMock()
     w._tabs = MagicMock()
     w._um_per_px = MagicMock()
