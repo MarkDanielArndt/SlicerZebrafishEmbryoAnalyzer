@@ -70,6 +70,7 @@ class ZebrafishEmbryoAnalyzerMainWidget:
         self._disposed = False
         self._run_token = 0
         self._deps_ok = True
+        self._install_declined = False  # set True when user cancels the dependency dialog; reset on dispose
 
         self._saved_layout_id = None
         self._saved_central_visible = None
@@ -945,6 +946,9 @@ class ZebrafishEmbryoAnalyzerMainWidget:
         except ImportError:
             return
 
+        if self._install_declined:
+            return
+
         from ZebrafishEmbryoAnalyzerLib import dependency_installer
         missing = dependency_installer.get_missing_packages()
         if not any(missing.values()):
@@ -992,24 +996,33 @@ class ZebrafishEmbryoAnalyzerMainWidget:
 
         # Buttons
         btn_layout = qt.QHBoxLayout()
-        btn_install = qt.QPushButton("Install")
-        btn_skip = qt.QPushButton("Skip")
+        btn_install = qt.QPushButton()
+        btn_install.setText("Install")
+        btn_skip = qt.QPushButton()
+        btn_skip.setText("Cancel")
         btn_layout.addWidget(btn_install)
         btn_layout.addWidget(btn_skip)
         layout.addLayout(btn_layout)
 
         selected_entries = []
+        install_confirmed = [False]
 
         def _on_install():
+            install_confirmed[0] = True
             selected_entries.extend(
                 entry for cb, entry in model_checkboxes if cb.isChecked()
             )
             dlg.accept()
 
-        btn_install.connect("clicked()", _on_install)
-        btn_skip.connect("clicked()", dlg.reject)
+        def _on_cancel():
+            self._install_declined = True
+            dlg.reject()
 
-        if dlg.exec_() != qt.QDialog.Accepted:
+        btn_install.connect("clicked()", _on_install)
+        btn_skip.connect("clicked()", _on_cancel)
+
+        dlg.exec_()
+        if not install_confirmed[0]:
             return
 
         try:
@@ -1039,8 +1052,10 @@ class ZebrafishEmbryoAnalyzerMainWidget:
         layout.addWidget(msg_label)
 
         btn_layout = qt.QHBoxLayout()
-        btn_restart = qt.QPushButton("Restart Now")
-        btn_later = qt.QPushButton("Later")
+        btn_restart = qt.QPushButton()
+        btn_restart.setText("Restart Now")
+        btn_later = qt.QPushButton()
+        btn_later.setText("Cancel")
         btn_layout.addWidget(btn_restart)
         btn_layout.addWidget(btn_later)
         layout.addLayout(btn_layout)
