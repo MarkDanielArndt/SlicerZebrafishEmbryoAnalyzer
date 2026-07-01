@@ -90,14 +90,29 @@ def test_analyse_images_error_per_image_does_not_crash(tmp_path, synthetic_fish_
     assert results[0]["length"] is None
 
 
-@pytest.mark.skip(reason="widget.py requires Slicer runtime — verify manually in Slicer")
-def test_models_to_download_all_cached():
-    pass
+def test_models_to_download_all_cached(tmp_path):
+    from ZebrafishAnalysisLib.model_manifest import get_missing_models, MODEL_SETS
+    model_set = MODEL_SETS["general"]
+    for entry in model_set.values():
+        f = tmp_path / entry["filename"]
+        f.write_bytes(b"\x00")
+    with patch(
+        "ZebrafishAnalysisLib.model_manifest.get_cached_path",
+        side_effect=lambda entry: tmp_path / entry["filename"],
+    ):
+        result = get_missing_models(model_set)
+    assert result == []
 
 
-@pytest.mark.skip(reason="widget.py requires Slicer runtime — verify manually in Slicer")
-def test_models_to_download_missing():
-    pass
+def test_models_to_download_missing(tmp_path):
+    from ZebrafishAnalysisLib.model_manifest import get_missing_models, MODEL_SETS
+    model_set = MODEL_SETS["general"]
+    with patch(
+        "ZebrafishAnalysisLib.model_manifest.get_cached_path",
+        side_effect=lambda entry: tmp_path / entry["filename"],
+    ):
+        result = get_missing_models(model_set)
+    assert len(result) == len(model_set)
 
 
 # ---------------------------------------------------------------------------

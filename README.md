@@ -64,7 +64,7 @@ The extension is not yet available through the Extensions Manager and must be in
    installed into Slicer's interpreter. Review the list and confirm. Nothing
    installs silently.
 6. After installation finishes, restart Slicer a second time.
-7. Open the **ZebrafishAnalysis** module from the **Modules** dropdown.
+7. Open the **Zebrafish Embryo Analyzer** module from the **Modules** dropdown.
 
 ---
 
