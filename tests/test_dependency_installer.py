@@ -91,7 +91,9 @@ def _make_slicer_mock():
 
 def _make_qt_mock():
     mock_qt = MagicMock()
-    mock_qt.Qt.WindowModal = 1
+    mock_qt.Qt.WindowContextHelpButtonHint = 0x4000000
+    mock_qt.Qt.WindowCloseButtonHint = 0x200
+    mock_qt.QDialogButtonBox.RejectRole = 1
     return mock_qt
 
 
@@ -141,7 +143,7 @@ def test_install_packages_no_numpy_pin_when_torch_fails_and_absent(monkeypatch):
     monkeypatch.setitem(sys.modules, "slicer", mock_slicer)
     monkeypatch.setitem(sys.modules, "qt", mock_qt)
 
-    def pip_fn_side_effect(pkg_str):
+    def pip_fn_side_effect(pkg_str, cancel_check=None):
         if "torch" in pkg_str:
             raise RuntimeError("simulated torch install failure")
         # other packages succeed (return None)

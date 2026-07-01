@@ -994,16 +994,6 @@ class ZebrafishEmbryoAnalyzerMainWidget:
                 layout.addWidget(cb)
                 model_checkboxes.append((cb, entry))
 
-        # Buttons
-        btn_layout = qt.QHBoxLayout()
-        btn_install = qt.QPushButton()
-        btn_install.setText("Install")
-        btn_skip = qt.QPushButton()
-        btn_skip.setText("Cancel")
-        btn_layout.addWidget(btn_install)
-        btn_layout.addWidget(btn_skip)
-        layout.addLayout(btn_layout)
-
         selected_entries = []
         install_confirmed = [False]
 
@@ -1018,20 +1008,28 @@ class ZebrafishEmbryoAnalyzerMainWidget:
             self._install_declined = True
             dlg.reject()
 
-        btn_install.connect("clicked()", _on_install)
-        btn_skip.connect("clicked()", _on_cancel)
+        btn_box = qt.QDialogButtonBox(dlg)
+        btn_box.addButton("Install", qt.QDialogButtonBox.AcceptRole)
+        btn_box.addButton("Cancel", qt.QDialogButtonBox.RejectRole)
+        btn_box.connect("accepted()", _on_install)
+        btn_box.connect("rejected()", _on_cancel)
+        layout.addWidget(btn_box)
 
         dlg.exec_()
         if not install_confirmed[0]:
+            self._install_declined = True
             return
 
         try:
-            dependency_installer.install_packages(missing)
+            completed = dependency_installer.install_packages(missing)
         except Exception as exc:
             import logging
             logging.exception("Dependency install failed: %s", exc)
             slicer.util.errorDisplay(f"Installation failed: {exc}")
             return
+
+        if not completed:
+            return  # user cancelled — no restart prompt
 
         if selected_entries:
             self._start_initial_model_download(selected_entries)
@@ -1051,17 +1049,12 @@ class ZebrafishEmbryoAnalyzerMainWidget:
         msg_label.setWordWrap(True)
         layout.addWidget(msg_label)
 
-        btn_layout = qt.QHBoxLayout()
-        btn_restart = qt.QPushButton()
-        btn_restart.setText("Restart Now")
-        btn_later = qt.QPushButton()
-        btn_later.setText("Cancel")
-        btn_layout.addWidget(btn_restart)
-        btn_layout.addWidget(btn_later)
-        layout.addLayout(btn_layout)
-
-        btn_restart.connect("clicked()", dlg.accept)
-        btn_later.connect("clicked()", dlg.reject)
+        btn_box = qt.QDialogButtonBox(dlg)
+        btn_box.addButton("Restart Now", qt.QDialogButtonBox.AcceptRole)
+        btn_box.addButton("Later", qt.QDialogButtonBox.RejectRole)
+        btn_box.connect("accepted()", dlg.accept)
+        btn_box.connect("rejected()", dlg.reject)
+        layout.addWidget(btn_box)
 
         result = dlg.exec_()
 

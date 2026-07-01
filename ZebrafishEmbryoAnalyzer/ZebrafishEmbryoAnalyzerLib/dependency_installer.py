@@ -51,13 +51,13 @@ def get_missing_packages() -> dict:
     }
 
 
-def _pip_install(args_str: str) -> None:
+def _pip_install(args_str: str, cancel_check=None) -> None:
     """Run pip install via subprocess, keeping the Qt event loop alive.
 
     Uses Popen + polling so the progress dialog stays responsive during long
     installs (Windows hides frozen dialogs; Linux shows 'not responding').
     Outside Slicer (unit tests), falls back to a blocking wait.
-    Raises RuntimeError on non-zero exit.
+    Raises RuntimeError on non-zero exit or when cancel_check() returns True.
     """
     import subprocess
     import sys
@@ -71,6 +71,9 @@ def _pip_install(args_str: str) -> None:
         import time
         while proc.poll() is None:
             _slicer.app.processEvents()
+            if cancel_check and cancel_check():
+                proc.terminate()
+                raise RuntimeError("Installation cancelled by user.")
             time.sleep(0.05)
     except ImportError:
         proc.wait()  # outside Slicer (unit tests) — blocking wait is fine
@@ -80,7 +83,7 @@ def _pip_install(args_str: str) -> None:
         raise RuntimeError(detail[-2000:])
 
 
-def install_packages(missing: dict, pip_fn=None) -> None:
+def install_packages(missing: dict, pip_fn=None) -> bool:
     """
     Install missing packages via subprocess pip, showing only our custom progress dialog.
     Only called from an explicit user action. Never called at setup time.
@@ -107,12 +110,33 @@ def install_packages(missing: dict, pip_fn=None) -> None:
 
     total = len(steps)  # numpy pin added below if applicable
 
-    progress = qt.QProgressDialog("Installing dependencies…", None, 0, total + 1)
-    progress.setWindowTitle("ZebrafishEmbryoAnalyzer — Dependency Setup")
-    progress.setMinimumWidth(400)
-    progress.setWindowModality(qt.Qt.WindowModal)
-    progress.setMinimumDuration(0)
-    progress.show()
+    prog_dlg = qt.QDialog(slicer.util.mainWindow())
+    prog_dlg.setWindowTitle("ZebrafishEmbryoAnalyzer — Dependency Setup")
+    prog_dlg.setWindowFlags(
+        prog_dlg.windowFlags()
+        & ~qt.Qt.WindowContextHelpButtonHint
+        & ~qt.Qt.WindowCloseButtonHint
+    )
+    prog_dlg.setMinimumWidth(400)
+    _prog_layout = qt.QVBoxLayout(prog_dlg)
+    prog_label = qt.QLabel("Installing dependencies…")
+    _prog_layout.addWidget(prog_label)
+    prog_bar = qt.QProgressBar()
+    prog_bar.setRange(0, total + 1)
+    prog_bar.setValue(0)
+    _prog_layout.addWidget(prog_bar)
+
+    cancelled = [False]
+
+    def _on_cancel():
+        cancelled[0] = True
+
+    _btn_box = qt.QDialogButtonBox(prog_dlg)
+    _btn_box.addButton("Cancel", qt.QDialogButtonBox.RejectRole)
+    _btn_box.connect("rejected()", _on_cancel)
+    _prog_layout.addWidget(_btn_box)
+
+    prog_dlg.show()
     slicer.app.processEvents()
 
     errors = []
@@ -120,43 +144,54 @@ def install_packages(missing: dict, pip_fn=None) -> None:
 
     step = 0
     if missing.get("torch"):
-        progress.setLabelText(f"Installing PyTorch (CPU)… ({step + 1}/{total + 1})")
-        progress.setValue(step)
+        prog_label.setText(f"Installing PyTorch (CPU)… ({step + 1}/{total + 1})")
+        prog_bar.setValue(step)
         slicer.app.processEvents()
         try:
-            pip_fn("torch torchvision --index-url " + TORCH_INDEX)
+            pip_fn("torch torchvision --index-url " + TORCH_INDEX,
+                   cancel_check=lambda: cancelled[0])
             torch_ok = True
         except Exception as exc:
             logging.exception("Failed to install torch: %s", exc)
             errors.append(f"torch/torchvision: {exc}")
         step += 1
+        slicer.app.processEvents()
+        if cancelled[0]:
+            prog_dlg.close()
+            return False
 
     for pkg in missing.get("general", []):
-        progress.setLabelText(f"Installing {pkg}… ({step + 1}/{total + 1})")
-        progress.setValue(step)
+        prog_label.setText(f"Installing {pkg}… ({step + 1}/{total + 1})")
+        prog_bar.setValue(step)
         slicer.app.processEvents()
         try:
-            pip_fn(pkg)
+            pip_fn(pkg, cancel_check=lambda: cancelled[0])
         except Exception as exc:
             logging.exception("Failed to install %s: %s", pkg, exc)
             errors.append(f"{pkg}: {exc}")
         step += 1
+        slicer.app.processEvents()
+        if cancelled[0]:
+            break
 
     # Pin numpy<2 if torch was just installed successfully OR was already present
+    if cancelled[0]:
+        prog_dlg.close()
+        return False
     already_has_torch = _is_importable("torch")
     if missing.get("numpy_pin") and (torch_ok or already_has_torch):
-        progress.setLabelText(f"Pinning NumPy<2 for PyTorch compatibility… ({step + 1}/{total + 1})")
-        progress.setValue(step)
+        prog_label.setText(f"Pinning NumPy<2 for PyTorch compatibility… ({step + 1}/{total + 1})")
+        prog_bar.setValue(step)
         slicer.app.processEvents()
         try:
-            pip_fn('numpy<2')
+            pip_fn('numpy<2', cancel_check=lambda: cancelled[0])
         except Exception as exc:
             logging.exception("Failed to pin numpy<2: %s", exc)
             errors.append(f"numpy<2: {exc}")
         step += 1
 
-    progress.setValue(total + 1)
-    progress.close()
+    prog_bar.setValue(total + 1)
+    prog_dlg.close()
 
     if errors:
         slicer.util.errorDisplay(
@@ -164,3 +199,5 @@ def install_packages(missing: dict, pip_fn=None) -> None:
         )
     else:
         slicer.util.showStatusMessage("ZebrafishEmbryoAnalyzer: dependencies installed — restart required.")
+
+    return True
