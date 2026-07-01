@@ -1134,7 +1134,7 @@ class ZebrafishEmbryoAnalyzerMainWidget:
         self._detail.invalidate_cache()
         self._gallery.populate(self._results)
         # Auto-exclude error rows so the visual state and export filter are consistent.
-        self._excluded |= {r["filename"] for r in self._results if r.get("error")}
+        self._excluded = {r["filename"] for r in self._results if r.get("error")}
         self._results_tab.populate(self._results, self._excluded)
         self._tabs.setCurrentIndex(0)
         errors = [r for r in self._results if r.get("error")]
