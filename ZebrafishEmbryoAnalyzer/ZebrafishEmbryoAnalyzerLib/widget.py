@@ -330,14 +330,10 @@ class ZebrafishEmbryoAnalyzerMainWidget:
 
         self._run_progress = qt.QProgressBar()
         self._run_progress.setTextVisible(True)
-        self._run_progress.setStyleSheet("""
-            QProgressBar {
-                font-weight: bold; border-radius: 3px; border: none;
-                background: #3a3a3a; color: white; text-align: center;
-                min-height: 28px;
-            }
-            QProgressBar::chunk { background: #2e7d32; border-radius: 2px; }
-        """)
+        self._run_progress.setStyleSheet(
+            "QProgressBar { text-align: center; border-radius: 3px; }"
+            " QProgressBar::chunk { background: #2e7d32; border-radius: 2px; }"
+        )
 
         self._run_stack = qt.QStackedWidget()
         self._run_stack.addWidget(self._btn_run)       # index 0 — idle
@@ -349,7 +345,7 @@ class ZebrafishEmbryoAnalyzerMainWidget:
         _run_vbox.setSpacing(2)
 
         self._run_status_label = qt.QLabel("Loading models…")
-        self._run_status_label.setStyleSheet("color: #ccc; font-size: 11px;")
+        self._run_status_label.setStyleSheet("font-size: 11px;")
         self._run_status_label.setAlignment(qt.Qt.AlignCenter)
         _run_vbox.addWidget(self._run_status_label)
 

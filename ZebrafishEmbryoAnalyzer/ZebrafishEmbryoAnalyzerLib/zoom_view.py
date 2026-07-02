@@ -166,7 +166,7 @@ class ZoomableImageView(qt.QGraphicsView):
         self.setVerticalScrollBarPolicy(qt.Qt.ScrollBarAlwaysOff)
         self.setTransformationAnchor(qt.QGraphicsView.AnchorUnderMouse)
         self.setResizeAnchor(qt.QGraphicsView.AnchorViewCenter)
-        self.setStyleSheet("background: #1a1a1a; border: none;")
+        self.setStyleSheet("background: palette(window); border: none;")
         self.setMinimumHeight(300)
         self.setSizePolicy(qt.QSizePolicy.Ignored, qt.QSizePolicy.Ignored)
         self.setFocusPolicy(qt.Qt.StrongFocus)
