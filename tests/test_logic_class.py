@@ -430,10 +430,11 @@ def test_logic_run_analysis_normalizes_pathlib_path_to_str():
         from ZebrafishEmbryoAnalyzer import ZebrafishEmbryoAnalyzerLogic
 
         logic = ZebrafishEmbryoAnalyzerLogic()
+        src_path = Path("/tmp/fish.png")
         with patch("ZebrafishEmbryoAnalyzerLib.logic.analyse_images", return_value=[]) as mock:
-            logic.run_analysis([Path("/tmp/fish.png")], {"um_per_px": 1.0})
+            logic.run_analysis([src_path], {"um_per_px": 1.0})
         delegated_paths = mock.call_args[0][0]
-        assert delegated_paths == ["/tmp/fish.png"], f"expected str path, got {delegated_paths!r}"
+        assert delegated_paths == [str(src_path)], f"expected str path, got {delegated_paths!r}"
         assert all(isinstance(p, str) for p in delegated_paths), "paths must be str after normalization"
         print("OK")
     """)
@@ -554,7 +555,7 @@ def test_cmake_packaging_list_includes_errors_py():
         os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
         "ZebrafishEmbryoAnalyzer", "CMakeLists.txt",
     )
-    content = open(cmake_path).read()
+    content = open(cmake_path, encoding="utf-8").read()
     assert "ZebrafishEmbryoAnalyzerLib/errors.py" in content, (
         f"CMakeLists.txt does not include ZebrafishEmbryoAnalyzerLib/errors.py:\n{cmake_path}"
     )
@@ -571,7 +572,7 @@ def test_widget_does_not_call_logic_run_analysis_directly():
     The main thread never blocks on synchronous model inference.
     """
     path = os.path.join(_MODULE_DIR, "ZebrafishEmbryoAnalyzerLib/widget.py")
-    source = open(path).read()
+    source = open(path, encoding="utf-8").read()
 
     assert "self._logic.run_analysis(" not in source, (
         "widget.py must not call self._logic.run_analysis() directly — "
@@ -598,7 +599,7 @@ def test_widget_and_detail_tab_have_no_direct_logic_lib_imports():
     violations = []
     for filename in ui_files:
         path = os.path.join(_MODULE_DIR, filename)
-        for lineno, line in enumerate(open(path), 1):
+        for lineno, line in enumerate(open(path, encoding="utf-8"), 1):
             if direct_import_re.search(line):
                 violations.append(f"{filename}:{lineno}: {line.rstrip()}")
     assert not violations, (

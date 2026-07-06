@@ -27,7 +27,7 @@ def widget_module(monkeypatch):
 
 
 def _method_names(path):
-    tree = ast.parse(path.read_text())
+    tree = ast.parse(path.read_text(encoding="utf-8"))
     return {
         node.name
         for node in ast.walk(tree)
@@ -36,7 +36,7 @@ def _method_names(path):
 
 
 def _calls_in_file(path):
-    tree = ast.parse(path.read_text())
+    tree = ast.parse(path.read_text(encoding="utf-8"))
     return [node for node in ast.walk(tree) if isinstance(node, ast.Call)]
 
 
@@ -44,7 +44,7 @@ def test_no_python_thread_creation_in_production_code():
     """Production extension code must not create Python background threads."""
     violations = []
     for path in PRODUCTION_ROOT.rglob("*.py"):
-        tree = ast.parse(path.read_text())
+        tree = ast.parse(path.read_text(encoding="utf-8"))
         imported_thread_names = set()
         for node in ast.walk(tree):
             if isinstance(node, ast.ImportFrom) and node.module == "threading":
@@ -88,7 +88,7 @@ def test_no_startup_model_preload_timer_or_signal():
 
 
 def test_model_selection_only_updates_parameter_node():
-    source = WIDGET_PATH.read_text()
+    source = WIDGET_PATH.read_text(encoding="utf-8")
     tree = ast.parse(source)
     lines = source.splitlines(keepends=True)
     connect_body = None
@@ -331,7 +331,7 @@ def test_start_model_download_exception_restores_run_ui(widget_module):
 
 
 def test_no_processevents_in_download_to_analysis_path():
-    source = WIDGET_PATH.read_text()
+    source = WIDGET_PATH.read_text(encoding="utf-8")
     tree = ast.parse(source)
 
     target_functions = {"_start_model_download", "_start_inference_process"}

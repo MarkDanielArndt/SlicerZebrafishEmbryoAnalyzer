@@ -144,7 +144,7 @@ def _run_detail(code: str) -> subprocess.CompletedProcess:
 # ---------------------------------------------------------------------------
 
 def _parse_class(path: str, class_name: str) -> ast.ClassDef:
-    tree = ast.parse(open(path).read())
+    tree = ast.parse(open(path, encoding="utf-8").read())
     for node in ast.walk(tree):
         if isinstance(node, ast.ClassDef) and node.name == class_name:
             return node
@@ -152,7 +152,7 @@ def _parse_class(path: str, class_name: str) -> ast.ClassDef:
 
 
 def _method_source(path: str, class_name: str, method_name: str) -> str:
-    src = open(path).read()
+    src = open(path, encoding="utf-8").read()
     cls = _parse_class(path, class_name)
     for node in ast.walk(cls):
         if isinstance(node, ast.FunctionDef) and node.name == method_name:
@@ -184,7 +184,7 @@ def _class_base_names(path: str, class_name: str) -> list:
 
 def test_vtk_observation_mixin_imported_from_slicer_util():
     """VTKObservationMixin must be imported from slicer.util, not slicer.ScriptedLoadableModule."""
-    src = open(_MAIN_PY).read()
+    src = open(_MAIN_PY, encoding="utf-8").read()
     # Must have: from slicer.util import VTKObservationMixin
     assert re.search(r"from\s+slicer\.util\s+import\b.*VTKObservationMixin", src), (
         "VTKObservationMixin must be imported from slicer.util"
@@ -210,7 +210,7 @@ def test_widget_inherits_vtk_observation_mixin():
 def test_setup_registers_start_close_event_observer():
     """setup() (via _register_scene_observers) must reference StartCloseEvent."""
     # The call may be in the extracted helper method; check the whole class.
-    src = open(_MAIN_PY).read()
+    src = open(_MAIN_PY, encoding="utf-8").read()
     cls = _parse_class(_MAIN_PY, "ZebrafishEmbryoAnalyzerWidget")
     lines = src.splitlines()
     cls_src = "\n".join(lines[cls.lineno - 1 : cls.end_lineno])
@@ -221,7 +221,7 @@ def test_setup_registers_start_close_event_observer():
 
 def test_setup_registers_end_close_event_observer():
     """setup() (via _register_scene_observers) must reference EndCloseEvent."""
-    src = open(_MAIN_PY).read()
+    src = open(_MAIN_PY, encoding="utf-8").read()
     cls = _parse_class(_MAIN_PY, "ZebrafishEmbryoAnalyzerWidget")
     lines = src.splitlines()
     cls_src = "\n".join(lines[cls.lineno - 1 : cls.end_lineno])
@@ -490,7 +490,7 @@ def test_no_prewarm_timer_on_cleanup():
     # Use _MAIN_PY constant (interpolated before subprocess launch) so __file__ is not needed.
     r = _run(f"""
         import ast
-        src = open(r"{_MAIN_PY}").read()
+        src = open(r"{_MAIN_PY}", encoding="utf-8").read()
         tree = ast.parse(src)
         lines = src.splitlines(keepends=True)
         cleanup_body = ""
@@ -895,7 +895,7 @@ def test_widget_init_has_no_set_layout_call():
     import ast
     from pathlib import Path
     source = (Path(__file__).parent.parent /
-              "ZebrafishEmbryoAnalyzer" / "ZebrafishEmbryoAnalyzerLib" / "widget.py").read_text()
+              "ZebrafishEmbryoAnalyzer" / "ZebrafishEmbryoAnalyzerLib" / "widget.py").read_text(encoding="utf-8")
     tree = ast.parse(source)
     for node in ast.walk(tree):
         if isinstance(node, ast.FunctionDef) and node.name == "__init__":
@@ -911,7 +911,7 @@ def test_apply_shell_layout_method_exists():
     import ast
     from pathlib import Path
     source = (Path(__file__).parent.parent /
-              "ZebrafishEmbryoAnalyzer" / "ZebrafishEmbryoAnalyzerLib" / "widget.py").read_text()
+              "ZebrafishEmbryoAnalyzer" / "ZebrafishEmbryoAnalyzerLib" / "widget.py").read_text(encoding="utf-8")
     tree = ast.parse(source)
     names = {n.name for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)}
     assert "apply_shell_layout" in names
@@ -962,7 +962,7 @@ def test_enter_calls_apply_shell_layout():
     import ast
     from pathlib import Path
     source = (Path(__file__).parent.parent /
-              "ZebrafishEmbryoAnalyzer" / "ZebrafishEmbryoAnalyzer.py").read_text()
+              "ZebrafishEmbryoAnalyzer" / "ZebrafishEmbryoAnalyzer.py").read_text(encoding="utf-8")
     tree = ast.parse(source)
     for node in ast.walk(tree):
         if isinstance(node, ast.FunctionDef) and node.name == "enter":
@@ -979,7 +979,7 @@ def test_exit_calls_restore_shell_layout():
     import ast
     from pathlib import Path
     source = (Path(__file__).parent.parent /
-              "ZebrafishEmbryoAnalyzer" / "ZebrafishEmbryoAnalyzer.py").read_text()
+              "ZebrafishEmbryoAnalyzer" / "ZebrafishEmbryoAnalyzer.py").read_text(encoding="utf-8")
     tree = ast.parse(source)
     for node in ast.walk(tree):
         if isinstance(node, ast.FunctionDef) and node.name == "exit":
@@ -995,7 +995,7 @@ def test_cleanup_calls_restore_shell_layout():
     """cleanup() must call restore_shell_layout() so reload does not corrupt saved state."""
     import ast
     from pathlib import Path
-    source = (Path(__file__).parent.parent / "ZebrafishEmbryoAnalyzer" / "ZebrafishEmbryoAnalyzer.py").read_text()
+    source = (Path(__file__).parent.parent / "ZebrafishEmbryoAnalyzer" / "ZebrafishEmbryoAnalyzer.py").read_text(encoding="utf-8")
     tree = ast.parse(source)
     for node in ast.walk(tree):
         if isinstance(node, ast.FunctionDef) and node.name == "cleanup":
@@ -1012,7 +1012,7 @@ def test_apply_shell_layout_is_idempotent():
     import ast
     from pathlib import Path
     source = (Path(__file__).parent.parent /
-              "ZebrafishEmbryoAnalyzer" / "ZebrafishEmbryoAnalyzerLib" / "widget.py").read_text()
+              "ZebrafishEmbryoAnalyzer" / "ZebrafishEmbryoAnalyzerLib" / "widget.py").read_text(encoding="utf-8")
     tree = ast.parse(source)
     for node in ast.walk(tree):
         if isinstance(node, ast.FunctionDef) and node.name == "apply_shell_layout":
@@ -1029,7 +1029,7 @@ def test_setup_calls_apply_shell_layout():
     import ast
     from pathlib import Path
     source = (Path(__file__).parent.parent /
-              "ZebrafishEmbryoAnalyzer" / "ZebrafishEmbryoAnalyzer.py").read_text()
+              "ZebrafishEmbryoAnalyzer" / "ZebrafishEmbryoAnalyzer.py").read_text(encoding="utf-8")
     tree = ast.parse(source)
     for node in ast.walk(tree):
         if isinstance(node, ast.FunctionDef) and node.name == "setup":
