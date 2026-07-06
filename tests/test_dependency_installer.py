@@ -175,16 +175,18 @@ def test_install_packages_no_numpy_pin_when_torch_fails_and_absent(monkeypatch):
 def test_install_packages_numpy_pin_when_torch_preexisting(monkeypatch):
     mock_slicer = _make_slicer_mock()
     mock_qt = _make_qt_mock()
-    mock_logic = _make_logic_mock(torch_present=True)  # already installed
 
     monkeypatch.setitem(sys.modules, "slicer", mock_slicer)
     monkeypatch.setitem(sys.modules, "qt", mock_qt)
-    monkeypatch.setitem(sys.modules, "ZebrafishEmbryoAnalyzerLib.logic", mock_logic)
 
     pip_fn = MagicMock()
 
     from ZebrafishEmbryoAnalyzerLib import dependency_installer
     importlib.reload(dependency_installer)
+
+    # Simulate torch already present on disk so already_has_torch is True.
+    # install_packages() checks _is_importable("torch") directly, not logic.dependency_status().
+    monkeypatch.setattr(dependency_installer, "_is_importable", lambda name: name == "torch")
 
     # torch not in missing (already installed); numpy_pin present
     dependency_installer.install_packages(
