@@ -288,3 +288,8 @@ Daniel Arndt.
 ## License
 
 This project is licensed under the [Apache License 2.0](LICENSE).
+
+> ⚠️ **Model weights** used by this extension are hosted on Hugging Face and have their
+> own license terms. Check the model cards before use:
+> - [markdanielarndt/Zebrafish_Segmentation](https://huggingface.co/markdanielarndt/Zebrafish_Segmentation)
+> - [markdanielarndt/Classification](https://huggingface.co/markdanielarndt/Classification)
