@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+env/
+
+# Models / training artifacts
+*.pth
+runs/
+
+# Gradio (relocated webapp; should not reappear here)
+.gradio/
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
