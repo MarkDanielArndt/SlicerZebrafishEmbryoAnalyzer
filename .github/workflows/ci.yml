@@ -3,12 +3,10 @@ name: CI
 on:
   push:
     branches:
-      - master
       - main
       - refactor/align-with-slicer-conventions
   pull_request:
     branches:
-      - master
       - main
       - refactor/align-with-slicer-conventions
 
