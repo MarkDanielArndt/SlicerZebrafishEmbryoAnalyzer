@@ -2,7 +2,7 @@
 Tests for ensure_dependencies() — the on-demand dependency install flow.
 
 Verifies:
-  - opening the module does no dependency handling at all
+  - opening the module never triggers an install (no call site in enter())
   - nothing missing → the caller proceeds
   - user declines → the caller does not proceed and nothing is installed
   - install needing no restart → the caller carries on in the same session
@@ -58,16 +58,16 @@ def test_show_restart_dialog_takes_no_parameters():
     )
 
 
-def test_module_entry_does_no_dependency_handling():
-    """Opening the module must neither install nor announce anything — the reference
-    extensions do the same and only act when the user starts something."""
+def test_module_entry_notifies_but_never_installs():
+    """Opening the module refreshes the in-panel notice so the user learns about a
+    pending install early, but must not open a dialog or install anything."""
     from pathlib import Path
     src = Path("ZebrafishEmbryoAnalyzer/ZebrafishEmbryoAnalyzer.py").read_text()
     enter_body = src.split("def enter(self)")[1].split("def exit(self)")[0]
     # Strip comments — enter() explains in prose why it does not call the installer.
     code = "\n".join(line.split("#")[0] for line in enter_body.splitlines())
     assert "ensure_dependencies(" not in code
-    assert "refresh_dependency_status(" not in code
+    assert "refresh_dependency_status(" in code
     assert "prompt_install_if_missing" not in src
 
 

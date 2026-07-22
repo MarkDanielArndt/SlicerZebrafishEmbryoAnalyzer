@@ -324,6 +324,22 @@ class ZebrafishEmbryoAnalyzerMainWidget:
 
         vbox.addStretch(1)  # push run + export to bottom
 
+        # Non-modal notice about missing packages. Deliberately not a dialog: opening the
+        # module must not interrupt, but the user has to learn about a pending install
+        # before spending time loading images and setting parameters — otherwise the first
+        # Run would end in a restart and throw that work away.
+        self._deps_notice = qt.QWidget()
+        _dn = qt.QVBoxLayout(self._deps_notice)
+        _dn.setContentsMargins(0, 0, 0, 6)
+        _dn.setSpacing(4)
+        self._deps_notice_label = qt.QLabel()
+        self._deps_notice_label.setWordWrap(True)
+        _dn.addWidget(self._deps_notice_label)
+        self._btn_install_deps = qt.QPushButton("Install Python packages…")
+        _dn.addWidget(self._btn_install_deps)
+        self._deps_notice.setVisible(False)
+        vbox.addWidget(self._deps_notice)
+
         self._btn_run = qt.QPushButton("▶  Run Analysis")
         self._btn_run.setStyleSheet("font-weight: bold; padding: 6px;")
 
@@ -400,6 +416,7 @@ class ZebrafishEmbryoAnalyzerMainWidget:
         self._btn_detect_scale.clicked.connect(self._on_detect_scale)
         self._btn_apply_scale.clicked.connect(self._on_apply_scale)
         self._btn_run.clicked.connect(self._on_run)
+        self._btn_install_deps.clicked.connect(self._on_install_deps_clicked)
         self._btn_stop.clicked.connect(self._cancel_workers)
         self._btn_excel.clicked.connect(self._on_export_excel)
         self._btn_csv.clicked.connect(self._on_export_csv)
@@ -921,6 +938,29 @@ class ZebrafishEmbryoAnalyzerMainWidget:
 
         self._deps_ok = not bool(missing_ml)
         self._refresh_run_button()
+        self._refresh_dependency_notice()
+
+    def _refresh_dependency_notice(self):
+        """Show or hide the in-panel notice about packages that still need installing."""
+        notice = getattr(self, "_deps_notice", None)
+        if notice is None:
+            return
+
+        from ZebrafishEmbryoAnalyzerLib import dependency_installer
+        missing = dependency_installer.get_missing_packages("analysis")
+        count = len(missing["torch"]) + len(missing["general"])
+        if not count:
+            notice.setVisible(False)
+            return
+
+        self._deps_notice_label.setText(
+            f"{count} Python package(s) still need to be installed before an analysis "
+            "can run. This needs a network connection and takes a few minutes."
+        )
+        notice.setVisible(True)
+
+    def _on_install_deps_clicked(self):
+        self.ensure_dependencies("analysis")
 
     def _categorize_inference_error(self, message, controller):
         """Return a user-facing error string based on exit_code; suppress raw tracebacks."""
