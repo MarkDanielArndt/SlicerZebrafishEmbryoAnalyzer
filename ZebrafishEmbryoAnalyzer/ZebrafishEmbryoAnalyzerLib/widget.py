@@ -507,7 +507,14 @@ class ZebrafishEmbryoAnalyzerMainWidget:
         self._refresh_run_button()
 
     def _load_originals(self, paths, stubs):
-        """Load original images after an explicit user action."""
+        """Load original images after an explicit user action.
+
+        Runs on the main thread, so the event loop has to be given a turn between images —
+        without it the whole application freezes until the last file is read, which on the
+        very first load after installing the packages takes long enough to show the system's
+        busy cursor. Processing events also lets the thumbnails appear one by one instead of
+        all at once at the end.
+        """
         import cv2
         from ZebrafishEmbryoAnalyzerLib.gallery_tab import THUMB_SIZE as _THUMB_SIZE
 
@@ -522,6 +529,12 @@ class ZebrafishEmbryoAnalyzerMainWidget:
                 scale = _THUMB_SIZE / max(h, w)
                 thumb = cv2.resize(rgb, (max(1, int(w * scale)), max(1, int(h * scale))))
                 self._gallery.update_thumb_prebuilt(i, thumb)
+            slicer.util.showStatusMessage(
+                f"ZebrafishEmbryoAnalyzer: loading images… ({i + 1}/{len(paths)})"
+            )
+            slicer.app.processEvents()
+
+        slicer.util.showStatusMessage("")
 
     def _required_model_entries(self, model_id):
         """Return the model entries required by the current settings."""
