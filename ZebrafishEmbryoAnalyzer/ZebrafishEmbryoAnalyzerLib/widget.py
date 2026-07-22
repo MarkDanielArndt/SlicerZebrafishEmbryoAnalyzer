@@ -518,23 +518,34 @@ class ZebrafishEmbryoAnalyzerMainWidget:
         import cv2
         from ZebrafishEmbryoAnalyzerLib.gallery_tab import THUMB_SIZE as _THUMB_SIZE
 
-        for i, p in enumerate(paths):
-            if stubs is not self._results:
-                return
-            img = cv2.imread(p)
-            if img is not None:
-                rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-                stubs[i]["original"] = rgb
-                h, w = rgb.shape[:2]
-                scale = _THUMB_SIZE / max(h, w)
-                thumb = cv2.resize(rgb, (max(1, int(w * scale)), max(1, int(h * scale))))
-                self._gallery.update_thumb_prebuilt(i, thumb)
-            slicer.util.showStatusMessage(
-                f"ZebrafishEmbryoAnalyzer: loading images… ({i + 1}/{len(paths)})"
-            )
-            slicer.app.processEvents()
+        if not paths:
+            return
 
-        slicer.util.showStatusMessage("")
+        # Determinate progress in the panel. Thumbnails filling in one by one shows that
+        # something is happening but not when it ends — on a large folder there would be no
+        # way to tell a finished load from a stalled one. Stop works without extra wiring:
+        # _cancel_workers() replaces self._results, which the guard below detects.
+        self._run_status_label.setText("Loading images…")
+        self._run_progress.setRange(0, len(paths))
+        self._run_progress.setValue(0)
+        self._run_stack.setCurrentIndex(1)
+        try:
+            for i, p in enumerate(paths):
+                if stubs is not self._results:
+                    return
+                img = cv2.imread(p)
+                if img is not None:
+                    rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+                    stubs[i]["original"] = rgb
+                    h, w = rgb.shape[:2]
+                    scale = _THUMB_SIZE / max(h, w)
+                    thumb = cv2.resize(rgb, (max(1, int(w * scale)), max(1, int(h * scale))))
+                    self._gallery.update_thumb_prebuilt(i, thumb)
+                self._run_progress.setValue(i + 1)
+                self._run_status_label.setText(f"Loading images… ({i + 1}/{len(paths)})")
+                slicer.app.processEvents()
+        finally:
+            self._run_stack.setCurrentIndex(0)
 
     def _required_model_entries(self, model_id):
         """Return the model entries required by the current settings."""

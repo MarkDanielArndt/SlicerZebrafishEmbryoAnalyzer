@@ -44,6 +44,9 @@ def _widget(cls, stubs):
     w = object.__new__(cls)
     w._results = stubs
     w._gallery = MagicMock()
+    w._run_stack = MagicMock()
+    w._run_progress = MagicMock()
+    w._run_status_label = MagicMock()
     return w
 
 
@@ -111,3 +114,39 @@ def test_a_second_load_aborts_the_first():
         # First image was written before the swap; the loop then bailed out.
         assert stubs[0]["original"] is not None
         assert all(s["original"] is None for s in stubs[1:])
+
+
+def test_progress_area_is_shown_and_hidden_again():
+    """Thumbnails filling in one by one shows activity but not completion — on a large
+    folder there would be no way to tell a finished load from a stalled one."""
+    with _stub_env() as (_slicer, _cv2):
+        from ZebrafishEmbryoAnalyzerLib.widget import ZebrafishEmbryoAnalyzerMainWidget as W
+        stubs = _stubs(3)
+        w = _widget(W, stubs)
+
+        W._load_originals(w, ["a.png", "b.png", "c.png"], stubs)
+
+        w._run_progress.setRange.assert_called_once_with(0, 3)
+        assert [c.args[0] for c in w._run_progress.setValue.call_args_list] == [0, 1, 2, 3]
+        # Shown while loading, back to the Run button afterwards.
+        assert [c.args[0] for c in w._run_stack.setCurrentIndex.call_args_list] == [1, 0]
+
+
+def test_progress_area_is_hidden_even_when_the_load_is_aborted():
+    with _stub_env() as (slicer, _cv2):
+        from ZebrafishEmbryoAnalyzerLib.widget import ZebrafishEmbryoAnalyzerMainWidget as W
+        stubs = _stubs(5)
+        w = _widget(W, stubs)
+        slicer.app.processEvents.side_effect = lambda: setattr(w, "_results", _stubs(2))
+
+        W._load_originals(w, [f"{i}.png" for i in range(5)], stubs)
+
+        assert w._run_stack.setCurrentIndex.call_args_list[-1].args[0] == 0
+
+
+def test_empty_selection_shows_no_progress():
+    with _stub_env() as (_slicer, _cv2):
+        from ZebrafishEmbryoAnalyzerLib.widget import ZebrafishEmbryoAnalyzerMainWidget as W
+        w = _widget(W, [])
+        W._load_originals(w, [], [])
+        w._run_stack.setCurrentIndex.assert_not_called()
