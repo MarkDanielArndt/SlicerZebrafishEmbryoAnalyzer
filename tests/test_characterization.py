@@ -247,10 +247,8 @@ def test_get_missing_packages_safe_outside_slicer():
     assert isinstance(result, dict)
     assert "torch" in result
     assert "general" in result
-    assert "numpy_pin" in result
     assert isinstance(result["torch"], list)
     assert isinstance(result["general"], list)
-    assert isinstance(result["numpy_pin"], list)
 
 
 # ---------------------------------------------------------------------------

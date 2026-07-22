@@ -6,16 +6,13 @@ from unittest.mock import MagicMock, patch
 
 
 @contextmanager
-def _stub_slicer_env(testing_enabled=False, user_answer=0x10000):
+def _stub_slicer_env(testing_enabled=False, user_accepts=False):
     qt_mock = MagicMock()
-    qt_mock.QMessageBox.Yes = 0x4000
-    qt_mock.QMessageBox.No = 0x10000
     msg_instance = MagicMock()
-    msg_instance.exec_.return_value = user_answer
-    qt_mock.QMessageBox.return_value = msg_instance
 
     slicer_mock = MagicMock()
     slicer_mock.app.testingEnabled.return_value = testing_enabled
+    slicer_mock.util.confirmOkCancelDisplay.return_value = user_accepts
 
     saved = {k: sys.modules[k] for k in ("slicer", "qt", "ctk") if k in sys.modules}
     sys.modules["slicer"] = slicer_mock
@@ -61,28 +58,41 @@ def test_missing_models_uses_get_missing_models():
 
 
 def test_prompt_suppressed_in_testing_mode():
-    with _stub_slicer_env(testing_enabled=True, user_answer=0x4000) as (
+    with _stub_slicer_env(testing_enabled=True, user_accepts=True) as (
         qt_mock,
         msg,
         slicer_mock,
     ):
         widget = _make_widget()
         assert widget._prompt_download_models([{"label": "Body"}]) is False
-        qt_mock.QMessageBox.assert_not_called()
+        slicer_mock.util.confirmOkCancelDisplay.assert_not_called()
 
 
 def test_prompt_user_declines_returns_false():
-    with _stub_slicer_env(user_answer=0x10000) as (qt_mock, msg, slicer_mock):
+    with _stub_slicer_env(user_accepts=False) as (qt_mock, msg, slicer_mock):
         widget = _make_widget()
         assert widget._prompt_download_models([{"label": "Body", "size_bytes": 1000}]) is False
-        qt_mock.QMessageBox.assert_called_once()
+        slicer_mock.util.confirmOkCancelDisplay.assert_called_once()
 
 
 def test_prompt_user_accepts_returns_true_without_downloading():
-    with _stub_slicer_env(user_answer=0x4000) as (qt_mock, msg, slicer_mock):
+    with _stub_slicer_env(user_accepts=True) as (qt_mock, msg, slicer_mock):
         widget = _make_widget()
         assert widget._prompt_download_models([{"label": "Body", "size_bytes": 1000}]) is True
-        qt_mock.QMessageBox.assert_called_once()
+        slicer_mock.util.confirmOkCancelDisplay.assert_called_once()
+
+
+def test_prompt_uses_standard_dialog_with_model_list_in_details():
+    """No hand-built QMessageBox — the model list belongs in the standard dialog's details."""
+    with _stub_slicer_env(user_accepts=True) as (qt_mock, msg, slicer_mock):
+        widget = _make_widget()
+        widget._prompt_download_models(
+            [{"label": "Body model", "size_bytes": 111 * 1_048_576}]
+        )
+        qt_mock.QMessageBox.assert_not_called()
+        detail = slicer_mock.util.confirmOkCancelDisplay.call_args.kwargs["detailedText"]
+        assert "Body model" in detail
+        assert "111" in detail
 
 
 def test_eyes_unchecked_eye_model_not_required():

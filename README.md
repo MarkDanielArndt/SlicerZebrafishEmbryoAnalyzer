@@ -74,13 +74,34 @@ On first open you will be prompted to install:
 
 | Package | Purpose |
 |---------|---------|
-| `torch`, `torchvision`, `timm`, `segmentation-models-pytorch` | ML inference |
-| `opencv-python`, `scipy`, `scikit-image`, `pillow` | Image processing |
-| `openpyxl`, `matplotlib` | Export |
-| `numpy<2` | Pinned for torch compatibility |
-| `platformdirs` | Cache path lookup (soft dependency, falls back gracefully) |
+| `torch`, `torchvision` | ML inference — installed through the PyTorch extension, not by this one |
+| `segmentation-models-pytorch`, `timm` | Segmentation models |
+| `scikit-image`, `opencv-python-headless` | Image processing |
+| `huggingface_hub` | Model download |
+| `openpyxl` | Excel export |
+| `pytesseract` | Scale bar text recognition |
+
+Nothing else is installed. `numpy`, `scipy`, `pillow` and `matplotlib` are used but
+ship with Slicer's Python, so the extension never touches them.
+
+Torch comes from the PyTorch extension so that the build matching your hardware
+(CUDA, MPS or CPU) is selected, and so that any platform-specific constraints are
+applied by the extension that owns them rather than by us. If the PyTorch extension
+is not installed yet, it is installed first; Slicer then needs a restart before torch
+itself can follow, and the remaining packages are installed on that next run.
 
 Total download is several GB (PyTorch alone ~2 GB). Takes several minutes.
+
+### A note on NumPy for macOS users
+
+The newest PyTorch build available for macOS is 2.2, which is compiled against the NumPy 1
+C API. The PyTorch extension therefore holds NumPy below 2 on that platform, and the
+remaining packages are installed in the same step so that pip picks versions that fit.
+On Linux and Windows a current PyTorch is used and NumPy is left alone.
+
+During installation pip prints a warning that `pyjpegls` requires `numpy>=2.0`. This is a
+metadata-level conflict only — `pyjpegls`, which Slicer ships for JPEG-LS DICOM decoding,
+was verified to work with NumPy 1.26.
 
 <img src="Documentation_images/setup_dialog.png" width="500" alt="Setup dialog showing packages and optional model download">
 

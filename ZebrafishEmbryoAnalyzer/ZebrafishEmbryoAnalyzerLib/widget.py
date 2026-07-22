@@ -70,7 +70,8 @@ class ZebrafishEmbryoAnalyzerMainWidget:
         self._disposed = False
         self._run_token = 0
         self._deps_ok = True
-        self._install_declined = False  # set True when user cancels the dependency dialog; reset on dispose
+        self._loading = False          # a load is in progress; the load buttons act as Cancel
+        self._load_cancelled = False
 
         self._saved_layout_id = None
         self._saved_central_visible = None
@@ -325,6 +326,22 @@ class ZebrafishEmbryoAnalyzerMainWidget:
 
         vbox.addStretch(1)  # push run + export to bottom
 
+        # Non-modal notice about missing packages. Deliberately not a dialog: opening the
+        # module must not interrupt, but the user has to learn about a pending install
+        # before spending time loading images and setting parameters — otherwise the first
+        # Run would end in a restart and throw that work away.
+        self._deps_notice = qt.QWidget()
+        _dn = qt.QVBoxLayout(self._deps_notice)
+        _dn.setContentsMargins(0, 0, 0, 6)
+        _dn.setSpacing(4)
+        self._deps_notice_label = qt.QLabel()
+        self._deps_notice_label.setWordWrap(True)
+        _dn.addWidget(self._deps_notice_label)
+        self._btn_install_deps = qt.QPushButton("Install Python packages…")
+        _dn.addWidget(self._btn_install_deps)
+        self._deps_notice.setVisible(False)
+        vbox.addWidget(self._deps_notice)
+
         self._btn_run = qt.QPushButton("▶  Run Analysis")
         self._btn_run.setStyleSheet("font-weight: bold; padding: 6px;")
 
@@ -401,6 +418,7 @@ class ZebrafishEmbryoAnalyzerMainWidget:
         self._btn_detect_scale.clicked.connect(self._on_detect_scale)
         self._btn_apply_scale.clicked.connect(self._on_apply_scale)
         self._btn_run.clicked.connect(self._on_run)
+        self._btn_install_deps.clicked.connect(self._on_install_deps_clicked)
         self._btn_stop.clicked.connect(self._cancel_workers)
         self._btn_excel.clicked.connect(self._on_export_excel)
         self._btn_csv.clicked.connect(self._on_export_csv)
@@ -419,6 +437,10 @@ class ZebrafishEmbryoAnalyzerMainWidget:
         self._model_combo.currentIndexChanged.connect(self._notify_settings_changed)
 
     def _on_load_folder(self):
+        if self._cancel_load_if_running():
+            return
+        if not self.ensure_dependencies("images"):
+            return
         settings = qt.QSettings()
         last = str(settings.value("ZebrafishEmbryoAnalyzer/lastFolder", "")) or ""
         folder = qt.QFileDialog.getExistingDirectory(None, "Select image folder", last)
@@ -433,9 +455,13 @@ class ZebrafishEmbryoAnalyzerMainWidget:
             for f in os.listdir(folder)
             if os.path.splitext(f)[1].lower() in exts and not f.startswith(".")
         ])
-        self._set_queue(paths)
+        self._set_queue(paths, self._btn_folder)
 
     def _on_load_files(self):
+        if self._cancel_load_if_running():
+            return
+        if not self.ensure_dependencies("images"):
+            return
         paths = qt.QFileDialog.getOpenFileNames(
             None, "Select images", "",
             "Images (*.png *.tif *.tiff *.jpg *.jpeg)"
@@ -443,9 +469,9 @@ class ZebrafishEmbryoAnalyzerMainWidget:
         if isinstance(paths, (list, tuple)) and paths and isinstance(paths[0], list):
             paths = paths[0]  # Slicer Qt binding wraps in extra tuple
         if paths:
-            self._set_queue(sorted(paths))
+            self._set_queue(sorted(paths), self._btn_files)
 
-    def _set_queue(self, paths):
+    def _set_queue(self, paths, button=None):
         self._run_token = getattr(self, "_run_token", 0) + 1
         # Cancel any in-flight inference so the subprocess doesn't produce stale results.
         if getattr(self, "_active_runner", None) is not None:
@@ -483,25 +509,69 @@ class ZebrafishEmbryoAnalyzerMainWidget:
             except Exception:
                 pass
 
-        self._load_originals(paths, stubs)
+        self._load_originals(paths, stubs, button)
         self._refresh_run_button()
 
-    def _load_originals(self, paths, stubs):
-        """Load original images after an explicit user action."""
+    def _load_originals(self, paths, stubs, button=None):
+        """Load original images after an explicit user action.
+
+        Runs on the main thread, so the event loop has to be given a turn between images —
+        without it the whole application freezes until the last file is read, which on the
+        very first load after installing the packages takes long enough to show the system's
+        busy cursor. Processing events also lets the thumbnails appear one by one instead of
+        all at once at the end.
+        """
         import cv2
         from ZebrafishEmbryoAnalyzerLib.gallery_tab import THUMB_SIZE as _THUMB_SIZE
 
-        for i, p in enumerate(paths):
-            if stubs is not self._results:
-                return
-            img = cv2.imread(p)
-            if img is not None:
-                rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-                stubs[i]["original"] = rgb
-                h, w = rgb.shape[:2]
-                scale = _THUMB_SIZE / max(h, w)
-                thumb = cv2.resize(rgb, (max(1, int(w * scale)), max(1, int(h * scale))))
-                self._gallery.update_thumb_prebuilt(i, thumb)
+        if not paths:
+            return
+
+        # Progress is reported on the button that started the load, so the feedback appears
+        # where the user just clicked, and the restored label is the signal that it is done —
+        # thumbnails filling in one by one shows activity but not completion.
+        #
+        # That button stays enabled and doubles as Cancel: its handler sees _loading and
+        # treats the click as an abort instead of starting a second load. The other button
+        # is disabled so there is only one way to interrupt.
+        buttons = [b for b in (self._btn_folder, self._btn_files) if b is not None]
+        labels = [b.text for b in buttons]
+        for b in buttons:
+            b.setEnabled(b is button)
+
+        self._loading = True
+        self._load_cancelled = False
+        try:
+            for i, p in enumerate(paths):
+                if stubs is not self._results or self._load_cancelled:
+                    return
+                img = cv2.imread(p)
+                if img is not None:
+                    rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+                    stubs[i]["original"] = rgb
+                    h, w = rgb.shape[:2]
+                    scale = _THUMB_SIZE / max(h, w)
+                    thumb = cv2.resize(rgb, (max(1, int(w * scale)), max(1, int(h * scale))))
+                    self._gallery.update_thumb_prebuilt(i, thumb)
+                if button is not None:
+                    button.setText(f"Cancel ({i + 1}/{len(paths)})")
+                slicer.app.processEvents()
+        finally:
+            self._loading = False
+            for b, text in zip(buttons, labels):
+                b.setText(text)
+                b.setEnabled(True)
+
+    def _cancel_load_if_running(self) -> bool:
+        """Turn a click on the loading button into an abort. True when it was handled.
+
+        Cancelling stops the thumbnails from loading; the images stay queued, so an analysis
+        can still be started — it reads the files itself and does not need the previews.
+        """
+        if not getattr(self, "_loading", False):
+            return False
+        self._load_cancelled = True
+        return True
 
     def _required_model_entries(self, model_id):
         """Return the model entries required by the current settings."""
@@ -544,14 +614,14 @@ class ZebrafishEmbryoAnalyzerMainWidget:
         )
         if total_bytes > 0:
             body += f"\n\nTotal: ~{_mb_label(total_bytes)} MB"
-        body += "\n\nDownload now? (first run only, requires internet)"
+        summary = "The required models are not downloaded yet."
+        if total_bytes > 0:
+            summary += f" About {_mb_label(total_bytes)} MB will be downloaded."
+        summary += "\n\nDownload now? This is only needed once and requires internet access."
 
-        msg = qt.QMessageBox(slicer.util.mainWindow())
-        msg.setWindowTitle("Download Required")
-        msg.setText(body)
-        msg.setStandardButtons(qt.QMessageBox.Yes | qt.QMessageBox.No)
-        msg.setDefaultButton(qt.QMessageBox.Yes)
-        if msg.exec_() != qt.QMessageBox.Yes:
+        if not slicer.util.confirmOkCancelDisplay(
+            summary, "Download required models", detailedText=body
+        ):
             return False
 
         return True
@@ -559,6 +629,8 @@ class ZebrafishEmbryoAnalyzerMainWidget:
     def _on_detect_scale(self):
         if not self._image_paths:
             self._scale_status.setText("Load images first.")
+            return
+        if not self.ensure_dependencies("scalebar"):
             return
         result = self._logic.detect_scalebar(self._image_paths[0])
         if result.get("bar_found"):
@@ -607,30 +679,34 @@ class ZebrafishEmbryoAnalyzerMainWidget:
             )
 
     def _on_run(self):
-        self._run_token += 1
-        token = self._run_token
-
-        model_id = self._model_combo.currentData or _DEFAULT_MODEL_ID
-
-        params = {
-            "length":    self._chk_length.isChecked(),
-            "curvature": self._chk_curvature.isChecked(),
-            "ratio":     self._chk_ratio.isChecked(),
-            "eyes":      self._chk_eyes.isChecked(),
-            "hitl":      self._chk_hitl.isChecked(),
-            "threshold": self._threshold_slider.value,
-            "um_per_px": self._um_per_px.value,
-            "model_id":  model_id,
-        }
-
-        missing = self._missing_required_models(model_id)
-        if missing:
-            if not self._prompt_download_models(missing):
-                return
-            self._start_model_download(missing, model_id, params, token)
+        if not self.ensure_dependencies("analysis"):
             return
 
-        self._start_inference_process(model_id, params, token)
+        with slicer.util.tryWithErrorDisplay("Failed to start the analysis.", waitCursor=True):
+            self._run_token += 1
+            token = self._run_token
+
+            model_id = self._model_combo.currentData or _DEFAULT_MODEL_ID
+
+            params = {
+                "length":    self._chk_length.isChecked(),
+                "curvature": self._chk_curvature.isChecked(),
+                "ratio":     self._chk_ratio.isChecked(),
+                "eyes":      self._chk_eyes.isChecked(),
+                "hitl":      self._chk_hitl.isChecked(),
+                "threshold": self._threshold_slider.value,
+                "um_per_px": self._um_per_px.value,
+                "model_id":  model_id,
+            }
+
+            missing = self._missing_required_models(model_id)
+            if missing:
+                if not self._prompt_download_models(missing):
+                    return
+                self._start_model_download(missing, model_id, params, token)
+                return
+
+            self._start_inference_process(model_id, params, token)
 
     def _start_model_download(self, missing, model_id, params, token):
         """Start an asynchronous Qt download and continue analysis only on success."""
@@ -894,14 +970,19 @@ class ZebrafishEmbryoAnalyzerMainWidget:
             node.EndModify(wasModified)
 
     def _refresh_run_button(self):
-        """Enable Run button only when deps are OK and at least one image is queued."""
-        enabled = self._deps_ok and len(self._image_paths) > 0
+        """Enable Run as soon as images are queued.
+
+        Missing packages deliberately do not disable the button: they are installed when
+        the analysis starts, so blocking it here would leave no way to trigger that.
+        """
+        enabled = len(self._image_paths) > 0
         self._btn_run.setEnabled(enabled)
         if not enabled:
-            if not self._deps_ok:
-                self._btn_run.setToolTip("Install missing ML dependencies first.")
-            else:
-                self._btn_run.setToolTip("Load images before running analysis.")
+            self._btn_run.setToolTip("Load images before running analysis.")
+        elif not self._deps_ok:
+            self._btn_run.setToolTip(
+                "Missing Python packages will be installed when the analysis starts."
+            )
         else:
             self._btn_run.setToolTip("")
 
@@ -911,6 +992,29 @@ class ZebrafishEmbryoAnalyzerMainWidget:
 
         self._deps_ok = not bool(missing_ml)
         self._refresh_run_button()
+        self._refresh_dependency_notice()
+
+    def _refresh_dependency_notice(self):
+        """Show or hide the in-panel notice about packages that still need installing."""
+        notice = getattr(self, "_deps_notice", None)
+        if notice is None:
+            return
+
+        from ZebrafishEmbryoAnalyzerLib import dependency_installer
+        missing = dependency_installer.get_missing_packages("analysis")
+        count = len(missing["torch"]) + len(missing["general"])
+        if not count:
+            notice.setVisible(False)
+            return
+
+        self._deps_notice_label.setText(
+            f"{count} Python package(s) still need to be installed before an analysis "
+            "can run. This needs a network connection and takes a few minutes."
+        )
+        notice.setVisible(True)
+
+    def _on_install_deps_clicked(self):
+        self.ensure_dependencies("analysis")
 
     def _categorize_inference_error(self, message, controller):
         """Return a user-facing error string based on exit_code; suppress raw tracebacks."""
@@ -933,171 +1037,85 @@ class ZebrafishEmbryoAnalyzerMainWidget:
             return "Internal error: could not write temporary results. Check disk space."
         return "Analysis failed. Check the application log."
 
-    def prompt_install_if_missing(self):
-        """Show a startup dialog if required dependencies are absent. Guarded by testingEnabled."""
+    def ensure_dependencies(self, purpose="analysis"):
+        """Make sure the Python packages needed for ``purpose`` are installed.
+
+        Called at the start of every action that needs them — never when the module is
+        merely opened, so browsing existing results never raises an installation question.
+
+        Returns True when the caller may proceed — including right after a successful
+        install, since a freshly installed package that was never imported in this session
+        is usable immediately. Returns False when the user declines, when the install
+        fails, and when a restart is genuinely required because something already held in
+        memory was replaced.
+        """
         try:
             import slicer
             if slicer.app.testingEnabled():
-                return
+                return True
         except ImportError:
-            return
-
-        if self._install_declined:
-            return
+            return True
 
         from ZebrafishEmbryoAnalyzerLib import dependency_installer
-        missing = dependency_installer.get_missing_packages()
+        missing = dependency_installer.get_missing_packages(purpose)
         if not any(missing.values()):
-            return
+            return True
 
-        # Build package item list
         items = []
         if missing["torch"]:
-            items.append("torch + torchvision (CPU build from pytorch.org)")
+            items.append("torch + torchvision (via the PyTorch extension)")
         items.extend(missing["general"])
-        if missing["numpy_pin"]:
-            items.append("numpy<2 (pin for PyTorch compatibility)")
+
+        detail = "Packages that will be installed:\n" + "\n".join(f"  • {i}" for i in items)
+        if missing["torch"]:
+            # PyTorchUtils only becomes importable after a restart, so torch itself
+            # can only be installed on the following run.
+            detail += (
+                "\n\nIf the PyTorch extension is not installed yet, it is installed first "
+                "and a second restart is required before PyTorch itself follows."
+            )
+
+        if not slicer.util.confirmOkCancelDisplay(
+            "This module requires additional Python packages. Installation needs a network "
+            "connection, takes several minutes, and Slicer has to be restarted afterwards.",
+            "Confirm Python package installation",
+            detailedText=detail,
+        ):
+            return False
 
         import qt
-        from ZebrafishEmbryoAnalyzerLib.model_manifest import collect_all_model_entries, get_missing_models
-        all_entries = collect_all_model_entries()
-        missing_models = get_missing_models(all_entries)
-
-        dlg = qt.QDialog(slicer.util.mainWindow())
-        dlg.setWindowTitle("ZebrafishEmbryoAnalyzer — Setup")
-        layout = qt.QVBoxLayout(dlg)
-
-        # Packages section
-        pkg_label = qt.QLabel(
-            "The following packages are required and not yet installed:\n\n"
-            + "\n".join(f"  • {i}" for i in items)
-            + "\n\nInstallation requires an internet connection and takes a few minutes. "
-            "Slicer must be restarted afterwards."
-        )
-        pkg_label.setWordWrap(True)
-        layout.addWidget(pkg_label)
-
-        # Models section (only if uncached models exist)
-        model_checkboxes = []
-        if missing_models:
-            layout.addWidget(qt.QLabel("\nOptionally download missing models now:"))
-            for entry in missing_models:
-                size_mb = round(entry.get("size_bytes", 0) / 1_048_576)
-                label = f"{entry['label']} (~{size_mb} MB)"
-                cb = qt.QCheckBox(label)
-                cb.setChecked(False)
-                cb.setProperty("model_entry_id", entry["id"])
-                layout.addWidget(cb)
-                model_checkboxes.append((cb, entry))
-
-        selected_entries = []
-        install_confirmed = [False]
-
-        def _on_install():
-            install_confirmed[0] = True
-            selected_entries.extend(
-                entry for cb, entry in model_checkboxes if cb.isChecked()
-            )
-            dlg.accept()
-
-        def _on_cancel():
-            self._install_declined = True
-            dlg.reject()
-
-        btn_box = qt.QDialogButtonBox(dlg)
-        btn_box.addButton("Install", qt.QDialogButtonBox.AcceptRole)
-        btn_box.addButton("Cancel", qt.QDialogButtonBox.RejectRole)
-        btn_box.connect("accepted()", _on_install)
-        btn_box.connect("rejected()", _on_cancel)
-        layout.addWidget(btn_box)
-
-        dlg.exec_()
-        if not install_confirmed[0]:
-            self._install_declined = True
-            return
-
+        slicer.app.setOverrideCursor(qt.Qt.WaitCursor)
         try:
-            completed = dependency_installer.install_packages(missing)
+            # install_packages reports the failures it knows about and returns "failed";
+            # anything reaching here is an unexpected defect worth surfacing.
+            outcome = dependency_installer.install_packages(missing)
         except Exception as exc:
             import logging
             logging.exception("Dependency install failed: %s", exc)
             slicer.util.errorDisplay(f"Installation failed: {exc}")
-            return
-
-        if not completed:
-            return  # user cancelled — no restart prompt
-
-        if selected_entries:
-            self._start_initial_model_download(selected_entries)
-        else:
-            self._show_restart_dialog()
-
-    def _show_restart_dialog(self):
-        """Show restart-required dialog after package installation."""
-        import qt
-        dlg = qt.QDialog(slicer.util.mainWindow())
-        dlg.setWindowTitle("Restart Required")
-        layout = qt.QVBoxLayout(dlg)
-
-        msg_label = qt.QLabel(
-            "Installation complete. Slicer must be restarted."
-        )
-        msg_label.setWordWrap(True)
-        layout.addWidget(msg_label)
-
-        btn_box = qt.QDialogButtonBox(dlg)
-        btn_box.addButton("Restart Now", qt.QDialogButtonBox.AcceptRole)
-        btn_box.addButton("Later", qt.QDialogButtonBox.RejectRole)
-        btn_box.connect("accepted()", dlg.accept)
-        btn_box.connect("rejected()", dlg.reject)
-        layout.addWidget(btn_box)
-
-        result = dlg.exec_()
-
-        if result == qt.QDialog.Accepted:
-            try:
-                slicer.util.restart()
-            except AttributeError:
-                slicer.app.restart()
-            return
+            return False
+        finally:
+            slicer.app.restoreOverrideCursor()
 
         self.refresh_dependency_status()
 
-    def _start_initial_model_download(self, entries):
-        """Start asynchronous download of initial model files.
+        if outcome == "ready":
+            return True
+        if outcome == "restart":
+            self._show_restart_dialog()
+        return False
 
-        Mirrors _start_model_download() but on completion only refreshes
-        dependency status — no inference is started.
-        """
-        if self._active_downloader is not None:
+    def _show_restart_dialog(self):
+        """Ask to restart after a package installation, the way Slicer does it elsewhere."""
+        if slicer.util.confirmOkCancelDisplay(
+            "Application restart is required to complete the installation of the required "
+            "Python packages.\nPress OK to restart.",
+            "Confirm application restart",
+        ):
+            slicer.util.restart()
             return
 
-        try:
-            self._run_status_label.setText("Downloading models…")
-            self._run_progress.setRange(0, 100)
-            self._run_progress.setValue(0)
-            self._run_progress.setFormat("")
-            self._run_stack.setCurrentIndex(1)
-
-            from ZebrafishEmbryoAnalyzerLib.model_downloader import start_model_download
-
-            def _finished(success, state, message, controller):
-                if self._disposed or controller is not self._active_downloader:
-                    return
-                self._active_downloader = None
-                self._run_stack.setCurrentIndex(0)
-                self._show_restart_dialog()
-
-            self._active_downloader = start_model_download(
-                entries,
-                _finished,
-                parent=slicer.util.mainWindow(),
-            )
-        except Exception as exc:
-            self._run_stack.setCurrentIndex(0)
-            self._active_downloader = None
-            logging.exception("ZebrafishEmbryoAnalyzer: failed to start initial model download")
-            slicer.util.errorDisplay(f"Could not start model download:\n{exc}")
+        self.refresh_dependency_status()
 
     def _cancel_workers(self):
         """Cancel active asynchronous operations and invalidate transient state."""
@@ -1151,13 +1169,24 @@ class ZebrafishEmbryoAnalyzerMainWidget:
         self._tabs.setCurrentIndex(0)
         errors = [r for r in self._results if r.get("error")]
         if errors:
-            msg = "\n".join(f"• {r['filename']}: {r['error']}" for r in errors)
-            slicer.util.warningDisplay(f"Errors in {len(errors)} image(s):\n\n{msg}")
+            # Short summary in the message, full text including tracebacks behind the
+            # dialog's "Details" — readable without opening the Python console, which the
+            # previous version required.
+            names = "\n".join(f"• {r['filename']}" for r in errors[:10])
+            if len(errors) > 10:
+                names += f"\n… and {len(errors) - 10} more"
+            detail = "\n\n".join(f"{r['filename']}:\n{r['error']}" for r in errors)
+            slicer.util.warningDisplay(
+                f"{len(errors)} of {len(self._results)} image(s) could not be analysed:\n\n{names}",
+                detailedText=detail,
+            )
 
     def _on_export_excel(self):
         from ZebrafishEmbryoAnalyzerLib.export import export_excel
         if not self._results:
             slicer.util.warningDisplay("No results to export. Run analysis first.")
+            return
+        if not self.ensure_dependencies("excel"):
             return
         path = qt.QFileDialog.getSaveFileName(None, "Save Excel", "", "Excel (*.xlsx)")
         if path:
