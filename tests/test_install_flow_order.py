@@ -229,3 +229,13 @@ def test_no_custom_setup_dialog_remains():
     assert "ZebrafishEmbryoAnalyzer — Setup" not in src
     assert "_start_initial_model_download" not in src
     assert "_install_declined" not in src
+
+
+def test_image_loading_checks_dependencies_first():
+    """Loading a folder crashed with ModuleNotFoundError: cv2 before this guard existed —
+    the gallery renders every thumbnail through overlay.py, which imports cv2."""
+    from pathlib import Path
+    src = Path("ZebrafishEmbryoAnalyzer/ZebrafishEmbryoAnalyzerLib/widget.py").read_text()
+    for handler in ("_on_load_folder", "_on_load_files"):
+        body = src.split(f"def {handler}(self)")[1].split("\n    def ")[0]
+        assert 'ensure_dependencies("images")' in body, f"{handler} loads images unguarded"

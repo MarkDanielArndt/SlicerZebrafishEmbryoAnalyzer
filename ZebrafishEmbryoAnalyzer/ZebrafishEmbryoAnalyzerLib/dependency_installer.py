@@ -46,6 +46,10 @@ def _is_importable(name: str) -> bool:
 # None means "everything", including torch.
 PACKAGES_FOR_PURPOSE = {
     "analysis": None,
+    # Showing images at all needs OpenCV: the gallery renders every thumbnail through
+    # ZebrafishEmbryoAnalyzerLib.overlay, which imports cv2 at module level — even for
+    # placeholders of images that have not been analysed yet.
+    "images":   ["opencv-python-headless"],
     "scalebar": ["opencv-python-headless", "pytesseract"],
     "excel":    ["openpyxl"],
 }

@@ -435,6 +435,8 @@ class ZebrafishEmbryoAnalyzerMainWidget:
         self._model_combo.currentIndexChanged.connect(self._notify_settings_changed)
 
     def _on_load_folder(self):
+        if not self.ensure_dependencies("images"):
+            return
         settings = qt.QSettings()
         last = str(settings.value("ZebrafishEmbryoAnalyzer/lastFolder", "")) or ""
         folder = qt.QFileDialog.getExistingDirectory(None, "Select image folder", last)
@@ -452,6 +454,8 @@ class ZebrafishEmbryoAnalyzerMainWidget:
         self._set_queue(paths)
 
     def _on_load_files(self):
+        if not self.ensure_dependencies("images"):
+            return
         paths = qt.QFileDialog.getOpenFileNames(
             None, "Select images", "",
             "Images (*.png *.tif *.tiff *.jpg *.jpeg)"

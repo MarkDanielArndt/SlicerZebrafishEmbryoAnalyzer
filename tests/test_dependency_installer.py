@@ -59,6 +59,17 @@ def test_excel_export_does_not_pull_in_torch(monkeypatch):
     assert result["general"] == ["openpyxl"]
 
 
+def test_loading_images_needs_opencv_but_not_torch(monkeypatch):
+    """Loading images reads every file with cv2.imread and builds thumbnails with
+    cv2.resize, so OpenCV is required before the gallery can show anything — but nothing
+    from the ML stack is."""
+    monkeypatch.setattr("ZebrafishEmbryoAnalyzerLib.dependency_installer._is_importable",
+                        lambda n: False)
+    result = get_missing_packages("images")
+    assert result["torch"] == []
+    assert result["general"] == ["opencv-python-headless"]
+
+
 def test_scalebar_needs_only_vision_packages(monkeypatch):
     monkeypatch.setattr("ZebrafishEmbryoAnalyzerLib.dependency_installer._is_importable",
                         lambda n: False)
