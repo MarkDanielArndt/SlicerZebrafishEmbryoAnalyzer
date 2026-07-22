@@ -44,9 +44,10 @@ def _widget(cls, stubs):
     w = object.__new__(cls)
     w._results = stubs
     w._gallery = MagicMock()
-    w._run_stack = MagicMock()
-    w._run_progress = MagicMock()
-    w._run_status_label = MagicMock()
+    w._btn_folder = MagicMock()
+    w._btn_folder.text = "Load Folder…"
+    w._btn_files = MagicMock()
+    w._btn_files.text = "Load Images…"
     return w
 
 
@@ -116,37 +117,51 @@ def test_a_second_load_aborts_the_first():
         assert all(s["original"] is None for s in stubs[1:])
 
 
-def test_progress_area_is_shown_and_hidden_again():
-    """Thumbnails filling in one by one shows activity but not completion — on a large
-    folder there would be no way to tell a finished load from a stalled one."""
+def test_progress_is_reported_on_the_button_that_started_the_load():
+    """Feedback belongs where the user clicked. The restored label is also the signal that
+    the load has finished — on a large folder there is otherwise no way to tell a finished
+    load from a stalled one."""
     with _stub_env() as (_slicer, _cv2):
         from ZebrafishEmbryoAnalyzerLib.widget import ZebrafishEmbryoAnalyzerMainWidget as W
         stubs = _stubs(3)
         w = _widget(W, stubs)
 
-        W._load_originals(w, ["a.png", "b.png", "c.png"], stubs)
+        W._load_originals(w, ["a.png", "b.png", "c.png"], stubs, w._btn_folder)
 
-        w._run_progress.setRange.assert_called_once_with(0, 3)
-        assert [c.args[0] for c in w._run_progress.setValue.call_args_list] == [0, 1, 2, 3]
-        # Shown while loading, back to the Run button afterwards.
-        assert [c.args[0] for c in w._run_stack.setCurrentIndex.call_args_list] == [1, 0]
+        texts = [c.args[0] for c in w._btn_folder.setText.call_args_list]
+        assert texts[:3] == ["Loading… 1/3", "Loading… 2/3", "Loading… 3/3"]
+        assert texts[-1] == "Load Folder…"          # original label restored
+        w._btn_files.setText.assert_called_once_with("Load Images…")
 
 
-def test_progress_area_is_hidden_even_when_the_load_is_aborted():
+def test_both_buttons_are_disabled_while_loading_and_restored_after():
+    with _stub_env() as (_slicer, _cv2):
+        from ZebrafishEmbryoAnalyzerLib.widget import ZebrafishEmbryoAnalyzerMainWidget as W
+        stubs = _stubs(2)
+        w = _widget(W, stubs)
+
+        W._load_originals(w, ["a.png", "b.png"], stubs, w._btn_files)
+
+        for btn in (w._btn_folder, w._btn_files):
+            assert [c.args[0] for c in btn.setEnabled.call_args_list] == [False, True]
+
+
+def test_buttons_are_restored_even_when_the_load_is_aborted():
     with _stub_env() as (slicer, _cv2):
         from ZebrafishEmbryoAnalyzerLib.widget import ZebrafishEmbryoAnalyzerMainWidget as W
         stubs = _stubs(5)
         w = _widget(W, stubs)
         slicer.app.processEvents.side_effect = lambda: setattr(w, "_results", _stubs(2))
 
-        W._load_originals(w, [f"{i}.png" for i in range(5)], stubs)
+        W._load_originals(w, [f"{i}.png" for i in range(5)], stubs, w._btn_folder)
 
-        assert w._run_stack.setCurrentIndex.call_args_list[-1].args[0] == 0
+        assert w._btn_folder.setText.call_args_list[-1].args[0] == "Load Folder…"
+        assert w._btn_folder.setEnabled.call_args_list[-1].args[0] is True
 
 
-def test_empty_selection_shows_no_progress():
+def test_empty_selection_touches_no_button():
     with _stub_env() as (_slicer, _cv2):
         from ZebrafishEmbryoAnalyzerLib.widget import ZebrafishEmbryoAnalyzerMainWidget as W
         w = _widget(W, [])
-        W._load_originals(w, [], [])
-        w._run_stack.setCurrentIndex.assert_not_called()
+        W._load_originals(w, [], [], w._btn_folder)
+        w._btn_folder.setEnabled.assert_not_called()

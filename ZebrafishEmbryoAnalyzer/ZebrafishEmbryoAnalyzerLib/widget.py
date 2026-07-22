@@ -451,7 +451,7 @@ class ZebrafishEmbryoAnalyzerMainWidget:
             for f in os.listdir(folder)
             if os.path.splitext(f)[1].lower() in exts and not f.startswith(".")
         ])
-        self._set_queue(paths)
+        self._set_queue(paths, self._btn_folder)
 
     def _on_load_files(self):
         if not self.ensure_dependencies("images"):
@@ -463,9 +463,9 @@ class ZebrafishEmbryoAnalyzerMainWidget:
         if isinstance(paths, (list, tuple)) and paths and isinstance(paths[0], list):
             paths = paths[0]  # Slicer Qt binding wraps in extra tuple
         if paths:
-            self._set_queue(sorted(paths))
+            self._set_queue(sorted(paths), self._btn_files)
 
-    def _set_queue(self, paths):
+    def _set_queue(self, paths, button=None):
         self._run_token = getattr(self, "_run_token", 0) + 1
         # Cancel any in-flight inference so the subprocess doesn't produce stale results.
         if getattr(self, "_active_runner", None) is not None:
@@ -503,10 +503,10 @@ class ZebrafishEmbryoAnalyzerMainWidget:
             except Exception:
                 pass
 
-        self._load_originals(paths, stubs)
+        self._load_originals(paths, stubs, button)
         self._refresh_run_button()
 
-    def _load_originals(self, paths, stubs):
+    def _load_originals(self, paths, stubs, button=None):
         """Load original images after an explicit user action.
 
         Runs on the main thread, so the event loop has to be given a turn between images —
@@ -521,14 +521,15 @@ class ZebrafishEmbryoAnalyzerMainWidget:
         if not paths:
             return
 
-        # Determinate progress in the panel. Thumbnails filling in one by one shows that
-        # something is happening but not when it ends — on a large folder there would be no
-        # way to tell a finished load from a stalled one. Stop works without extra wiring:
-        # _cancel_workers() replaces self._results, which the guard below detects.
-        self._run_status_label.setText("Loading images…")
-        self._run_progress.setRange(0, len(paths))
-        self._run_progress.setValue(0)
-        self._run_stack.setCurrentIndex(1)
+        # Progress is reported on the button that started the load, so the feedback appears
+        # where the user just clicked. Thumbnails filling in one by one shows that something
+        # is happening but not when it ends — on a large folder there would be no way to
+        # tell a finished load from a stalled one. Both buttons are disabled meanwhile, so
+        # the restored label is the signal that it is done.
+        buttons = [b for b in (self._btn_folder, self._btn_files) if b is not None]
+        labels = [b.text for b in buttons]
+        for b in buttons:
+            b.setEnabled(False)
         try:
             for i, p in enumerate(paths):
                 if stubs is not self._results:
@@ -541,11 +542,13 @@ class ZebrafishEmbryoAnalyzerMainWidget:
                     scale = _THUMB_SIZE / max(h, w)
                     thumb = cv2.resize(rgb, (max(1, int(w * scale)), max(1, int(h * scale))))
                     self._gallery.update_thumb_prebuilt(i, thumb)
-                self._run_progress.setValue(i + 1)
-                self._run_status_label.setText(f"Loading images… ({i + 1}/{len(paths)})")
+                if button is not None:
+                    button.setText(f"Loading… {i + 1}/{len(paths)}")
                 slicer.app.processEvents()
         finally:
-            self._run_stack.setCurrentIndex(0)
+            for b, text in zip(buttons, labels):
+                b.setText(text)
+                b.setEnabled(True)
 
     def _required_model_entries(self, model_id):
         """Return the model entries required by the current settings."""
