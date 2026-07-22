@@ -24,6 +24,12 @@ TORCH_PACKAGES = ["torch", "torchvision"]
 
 PYTORCH_EXTENSION_NAME = "PyTorch"
 
+# opencv-python-headless 4.12 and newer require numpy>=2. On macOS torch caps out at
+# 2.2 (the last release with a macOS wheel), which needs numpy<2 — so on that platform
+# the two cannot coexist. 4.11.0.86 is the last release built against the NumPy 1 API.
+OPENCV_PACKAGE = "opencv-python-headless"
+OPENCV_NUMPY1_SPEC = "opencv-python-headless<4.12"
+
 
 def _is_importable(name: str) -> bool:
     import importlib.util
@@ -45,6 +51,40 @@ def get_missing_packages() -> dict:
         "torch":   [p for p in TORCH_PACKAGES    if not _is_importable(p)],
         "general": [p for p in REQUIRED_PACKAGES if not _is_importable(p)],
     }
+
+
+def _numpy_major() -> int:
+    """Installed numpy major version, or 0 if it cannot be determined.
+
+    Reads package metadata instead of importing numpy on purpose: once numpy has been
+    imported it can no longer be replaced without restarting Slicer, which would defeat
+    the constraint applied right after the torch install.
+    """
+    import importlib.metadata
+    try:
+        return int(importlib.metadata.version("numpy").split(".")[0])
+    except Exception:
+        return 0
+
+
+def _constrain_numpy_for_torch(pip_fn) -> bool:
+    """Hold numpy at 1.x on macOS, where the available torch build requires it.
+
+    Returns True if numpy is at 1.x afterwards. torch 2.2 is the last release with a
+    macOS wheel and is built against the NumPy 1 C API; against NumPy 2 it imports with
+    only a warning and then fails at the first array conversion with "Numpy is not
+    available". Slicer's own PyTorch extension applies the same constraint during its
+    install. Deliberately not done on other platforms, where a current torch supports
+    NumPy 2 and downgrading would needlessly change Slicer's shared environment for
+    every other extension.
+    """
+    import sys
+    if sys.platform != "darwin":
+        return False
+    if _numpy_major() < 2:
+        return True
+    pip_fn("numpy<2")
+    return True
 
 
 def _pytorch_utils_logic():
@@ -142,13 +182,24 @@ def install_packages(missing: dict, pip_fn=None, torch_fn=None) -> bool:
             return False
 
     errors = []
+
+    # Settle numpy before the remaining packages, so their own numpy requirements are
+    # resolved against the version torch can actually work with.
+    numpy_is_v1 = False
+    try:
+        numpy_is_v1 = _constrain_numpy_for_torch(pip_fn)
+    except Exception as exc:
+        logging.exception("Failed to constrain numpy: %s", exc)
+        errors.append(f"numpy: {exc}")
+
     for pkg in missing.get("general", []):
-        slicer.util.showStatusMessage(f"ZebrafishEmbryoAnalyzer: installing {pkg}…")
+        spec = OPENCV_NUMPY1_SPEC if (pkg == OPENCV_PACKAGE and numpy_is_v1) else pkg
+        slicer.util.showStatusMessage(f"ZebrafishEmbryoAnalyzer: installing {spec}…")
         try:
-            pip_fn(pkg)
+            pip_fn(spec)
         except Exception as exc:
-            logging.exception("Failed to install %s: %s", pkg, exc)
-            errors.append(f"{pkg}: {exc}")
+            logging.exception("Failed to install %s: %s", spec, exc)
+            errors.append(f"{spec}: {exc}")
 
     if errors:
         slicer.util.errorDisplay(

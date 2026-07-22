@@ -63,13 +63,19 @@ def test_get_missing_packages_imports_no_slicer():
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _reload_with_slicer(monkeypatch, testing_enabled=False):
-    """Install a slicer mock and reload the module against it. Returns (module, mock)."""
+def _reload_with_slicer(monkeypatch, testing_enabled=False, platform="linux", numpy_major=2):
+    """Install a slicer mock and reload the module against it. Returns (module, mock).
+
+    platform and numpy_major are pinned explicitly: the numpy constraint is macOS-only,
+    so tests must not inherit the developer machine's platform or numpy version.
+    """
     mock_slicer = MagicMock()
     mock_slicer.app.testingEnabled.return_value = testing_enabled
     monkeypatch.setitem(sys.modules, "slicer", mock_slicer)
+    monkeypatch.setattr(sys, "platform", platform)
     from ZebrafishEmbryoAnalyzerLib import dependency_installer
     importlib.reload(dependency_installer)
+    monkeypatch.setattr(dependency_installer, "_numpy_major", lambda: numpy_major)
     return dependency_installer, mock_slicer
 
 
@@ -233,6 +239,69 @@ def test_pytorch_utils_logic_returns_none_without_extension(monkeypatch):
     di, _ = _reload_with_slicer(monkeypatch)
     monkeypatch.setitem(sys.modules, "PyTorchUtils", None)  # forces ModuleNotFoundError
     assert di._pytorch_utils_logic() is None
+
+
+# ---------------------------------------------------------------------------
+# numpy constraint (macOS only) and the opencv version that follows from it
+# ---------------------------------------------------------------------------
+
+def test_numpy_major_does_not_import_numpy(monkeypatch):
+    """Reading the version must not import numpy — an imported numpy cannot be
+    replaced without restarting Slicer."""
+    import ZebrafishEmbryoAnalyzerLib.dependency_installer as di
+    src = open(di.__file__).read()
+    body = src.split("def _numpy_major")[1].split("def ")[0]
+    assert "import numpy" not in body
+    assert "importlib.metadata" in body
+    assert di._numpy_major() >= 1  # still returns something usable
+
+
+def test_numpy_not_constrained_off_macos(monkeypatch):
+    """On Linux and Windows a current torch supports NumPy 2 — downgrading there would
+    change Slicer's shared environment for every other extension for no reason."""
+    di, _ = _reload_with_slicer(monkeypatch, platform="linux", numpy_major=2)
+    pip_fn = MagicMock()
+    assert di._constrain_numpy_for_torch(pip_fn) is False
+    pip_fn.assert_not_called()
+
+
+def test_numpy_constrained_on_macos_when_numpy2(monkeypatch):
+    di, _ = _reload_with_slicer(monkeypatch, platform="darwin", numpy_major=2)
+    pip_fn = MagicMock()
+    assert di._constrain_numpy_for_torch(pip_fn) is True
+    pip_fn.assert_called_once_with("numpy<2")
+
+
+def test_numpy_constraint_is_noop_on_macos_when_already_numpy1(monkeypatch):
+    di, _ = _reload_with_slicer(monkeypatch, platform="darwin", numpy_major=1)
+    pip_fn = MagicMock()
+    assert di._constrain_numpy_for_torch(pip_fn) is True
+    pip_fn.assert_not_called()
+
+
+def test_opencv_pinned_to_numpy1_release_on_macos(monkeypatch):
+    """opencv-python-headless >= 4.12 requires numpy>=2, which cannot coexist with the
+    torch build available on macOS."""
+    di, _ = _reload_with_slicer(monkeypatch, platform="darwin", numpy_major=2)
+    pip_fn = MagicMock()
+
+    di.install_packages({"torch": [], "general": ["opencv-python-headless", "timm"]},
+                        pip_fn=pip_fn, torch_fn=MagicMock(return_value="ok"))
+
+    calls = [c.args[0] for c in pip_fn.call_args_list]
+    assert calls == ["numpy<2", "opencv-python-headless<4.12", "timm"]
+
+
+def test_opencv_unpinned_off_macos(monkeypatch):
+    di, _ = _reload_with_slicer(monkeypatch, platform="linux", numpy_major=2)
+    pip_fn = MagicMock()
+
+    di.install_packages({"torch": [], "general": ["opencv-python-headless", "timm"]},
+                        pip_fn=pip_fn, torch_fn=MagicMock(return_value="ok"))
+
+    calls = [c.args[0] for c in pip_fn.call_args_list]
+    assert calls == ["opencv-python-headless", "timm"]
+    assert not any("numpy" in c for c in calls)
 
 
 def test_install_pytorch_extension_skips_when_already_installed(monkeypatch):
