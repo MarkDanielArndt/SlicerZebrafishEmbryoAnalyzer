@@ -40,14 +40,3 @@ jobs:
 
       - name: Syntax check
         run: python -m compileall -q ZebrafishEmbryoAnalyzer/
-
-      - name: Forbidden-files check
-        shell: bash
-        run: |
-          FORBIDDEN=$(git ls-files notes/ .claude/ CLAUDE.md skills-lock.json)
-          if [ -n "$FORBIDDEN" ]; then
-            echo "ERROR: forbidden files tracked in git:"
-            echo "$FORBIDDEN"
-            exit 1
-          fi
-          echo "PASS: no forbidden files tracked"

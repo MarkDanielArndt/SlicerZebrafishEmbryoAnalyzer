@@ -410,6 +410,21 @@ class ZebrafishEmbryoAnalyzerMainWidget:
         ex_layout.addWidget(self._btn_excel)
         ex_layout.addWidget(self._btn_csv)
 
+        from ZebrafishEmbryoAnalyzerLib import bug_report
+        self._btn_bug_report = None
+        if bug_report.is_developer_mode():
+            dev_box = ctk.ctkCollapsibleButton()
+            dev_box.text      = "Developer Tools"
+            dev_box.collapsed = True
+            vbox.addWidget(dev_box)
+            dev_layout = qt.QVBoxLayout(dev_box)
+
+            self._btn_bug_report = qt.QPushButton("Copy Bug Report")
+            self._btn_bug_report.setToolTip(
+                "Copy Slicer/extension/package versions to the clipboard "
+                "and save them to a file, for pasting into a new issue."
+            )
+            dev_layout.addWidget(self._btn_bug_report)
 
     def _build_right_panel(self, splitter):
         self._tabs = qt.QTabWidget()
@@ -443,6 +458,8 @@ class ZebrafishEmbryoAnalyzerMainWidget:
         self._btn_stop.clicked.connect(self._cancel_workers)
         self._btn_excel.clicked.connect(self._on_export_excel)
         self._btn_csv.clicked.connect(self._on_export_csv)
+        if self._btn_bug_report:
+            self._btn_bug_report.clicked.connect(self._on_copy_bug_report)
 
         # Notify parameter node owner whenever any analysis setting changes.
         for _signal in (
@@ -1276,3 +1293,20 @@ class ZebrafishEmbryoAnalyzerMainWidget:
                 slicer.util.infoDisplay(f"Saved {len(active)} rows to:\n{path}")
             except Exception as e:
                 slicer.util.errorDisplay(f"Export failed:\n{e}")
+
+    def _on_copy_bug_report(self):
+        from ZebrafishEmbryoAnalyzerLib import bug_report
+        try:
+            report = bug_report.build_report()
+            qt.QApplication.clipboard().setText(report)
+            path = bug_report.save_report(report)
+            slicer.util.infoDisplay(
+                "Bug report copied to clipboard and saved to:\n"
+                f"{path}\n\n"
+                # No repository name on purpose: the extension outlives any single
+                # fork, and README.md points users the same way.
+                "Paste it into a new issue in the extension's repository."
+            )
+        except Exception as e:
+            logging.exception("Bug report generation failed: %s", e)
+            slicer.util.errorDisplay(f"Could not generate bug report:\n{e}")
