@@ -80,6 +80,7 @@ On first open you will be prompted to install:
 | `huggingface_hub` | Model download |
 | `openpyxl` | Excel export |
 | `pytesseract` | Scale bar text recognition |
+| `zebrafish-measure` | Analysis engine (segmentation, length, scale bar). Installed automatically with `--no-deps`, pinned to `==0.2.0`; requires Python >= 3.10 |
 
 Nothing else is installed. `numpy`, `scipy`, `pillow` and `matplotlib` are used but
 ship with Slicer's Python, so the extension never touches them.
@@ -156,7 +157,6 @@ the **Model** accordion:
 
 - **General**: the default model, suitable for standard brightfield imaging
   conditions. Recommended as a starting point.
-- **DESY variants**: fine-tuned for specific imaging setups at DESY.
 
 ---
 

@@ -118,9 +118,9 @@ def test_eyes_checked_eye_model_required():
         assert "curvature" in required
 
 
-@pytest.mark.parametrize("model_id", ["fast", "desy"])
+@pytest.mark.parametrize("model_id", ["fast"])
 def test_edema_checked_requires_edema_where_offered(model_id):
-    """Fast and DESY each have a resolution-matched edema model."""
+    """Fast has a resolution-matched edema model."""
     with _stub_slicer_env():
         widget = _make_widget(edema_checked=True)
         required = widget._required_model_entries(model_id)
@@ -138,7 +138,7 @@ def test_edema_checked_not_required_on_general():
         assert "body" in required
 
 
-@pytest.mark.parametrize("model_id", ["fast", "general", "desy"])
+@pytest.mark.parametrize("model_id", ["fast", "general"])
 def test_edema_unchecked_not_required(model_id):
     with _stub_slicer_env():
         widget = _make_widget(edema_checked=False)
@@ -147,7 +147,7 @@ def test_edema_unchecked_not_required(model_id):
         assert "body" in required
 
 
-@pytest.mark.parametrize("model_id", ["fast", "general", "desy"])
+@pytest.mark.parametrize("model_id", ["fast", "general"])
 def test_swimbladder_checked_required_on_every_preset(model_id):
     with _stub_slicer_env():
         widget = _make_widget(swimbladder_checked=True)

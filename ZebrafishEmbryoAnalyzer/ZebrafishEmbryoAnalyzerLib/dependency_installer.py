@@ -17,7 +17,16 @@ REQUIRED_PACKAGES = [
     "huggingface_hub",
     "openpyxl",
     "pytesseract",
+    "zebrafish-measure",
 ]
+
+# zebrafish-measure declares opencv-python and torch as hard dependencies, which would
+# replace Slicer's own opencv-python-headless and the torch from the PyTorch extension.
+# It is therefore installed in a separate pip call with --no-deps, after everything else.
+# Pillow (imported at its module top) ships with Slicer; matplotlib is only imported lazily
+# by plotting helpers this extension does not call, so neither is installed here.
+ZEBRAFISH_MEASURE_PACKAGE = "zebrafish-measure"
+ZEBRAFISH_MEASURE_REQUIREMENT = "--no-deps zebrafish-measure==0.2.0"
 
 # Detection only — provided by the PyTorch extension, never installed via pip here.
 TORCH_PACKAGES = ["torch", "torchvision"]
@@ -35,6 +44,7 @@ def _is_importable(name: str) -> bool:
     import_name = {
         "scikit-image":                "skimage",
         "opencv-python-headless":      "cv2",
+        "zebrafish-measure":           "zebrafish_measure",
         "huggingface_hub":             "huggingface_hub",
         "segmentation_models_pytorch": "segmentation_models_pytorch",
     }.get(name, name)
@@ -50,7 +60,10 @@ PACKAGES_FOR_PURPOSE = {
     # ZebrafishEmbryoAnalyzerLib.overlay, which imports cv2 at module level — even for
     # placeholders of images that have not been analysed yet.
     "images":   ["opencv-python-headless"],
-    "scalebar": ["opencv-python-headless", "pytesseract"],
+    # detect_scalebar goes through the Core shim to zebrafish_measure.scalebar, whose
+    # package __init__ also imports .length (needs scikit-image).
+    "scalebar": ["opencv-python-headless", "pytesseract", "scikit-image",
+                 "zebrafish-measure"],
     "excel":    ["openpyxl"],
 }
 
@@ -234,7 +247,7 @@ def install_packages(missing: dict, pip_fn=None, torch_fn=None) -> str:
     # replaced the numpy 1.x that the macOS torch build needs. Handing pip the whole set at
     # once lets it pick versions that fit together — including older tifffile and opencv
     # releases — instead of us chasing each transitive dependency by hand.
-    requirements = list(missing.get("general", []))
+    requirements = [p for p in missing.get("general", []) if p != ZEBRAFISH_MEASURE_PACKAGE]
     if _numpy_must_stay_v1() and (requirements or _numpy_major() >= 2):
         requirements.append(NUMPY_TORCH_SPEC)
 
@@ -251,6 +264,18 @@ def install_packages(missing: dict, pip_fn=None, torch_fn=None) -> str:
             # full pip log before raising. Ours would be a second, worse dialog — the
             # exception text alone is just "non-zero exit status".
             logging.exception("Failed to install Python packages: %s", exc)
+            return "failed"
+
+    if ZEBRAFISH_MEASURE_PACKAGE in missing.get("general", []):
+        slicer.util.showStatusMessage("ZebrafishEmbryoAnalyzer: installing zebrafish-measure…")
+        try:
+            pip_fn(ZEBRAFISH_MEASURE_REQUIREMENT)
+        except Exception as exc:
+            logging.exception("Failed to install zebrafish-measure: %s", exc)
+            # The main call may already have replaced numpy (macOS numpy<2 path); the
+            # user must still restart Slicer in that case.
+            if _numpy_version() != numpy_before:
+                return "restart"
             return "failed"
 
     # numpy is the one package Slicer has already imported by the time we get here, so a

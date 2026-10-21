@@ -26,7 +26,6 @@ from ZebrafishEmbryoAnalyzerLib.errors import AnalysisInputError, MRMLAdapterErr
 _MODEL_ENTRIES = [
     ("Fast & Easy (256 px, ~2s/image)",     "fast",    ("best_model_body_3400_vgg19.pth", "vgg19", None)),
     ("Complex & Slower (512 px, ~7s/image)", "general", ("best_model_body_512.pth",        "vgg19", None)),
-    ("Fine-tuned DESY",                     "desy",    ("desy_body_512_finetuned.pth",    "vgg19", "desy_eye_512_finetuned.pth")),
 ]
 _MODEL_BY_ID  = {mid: data for _, mid, data in _MODEL_ENTRIES}
 _DEFAULT_MODEL_ID = "general"
@@ -330,7 +329,7 @@ class ZebrafishEmbryoAnalyzerMainWidget:
         # the way to reach it is stated.
         self._edema_hint = qt.QLabel(
             "Edema needs a model matching the preset's resolution — available "
-            "under Fast & Easy or Fine-tuned DESY."
+            "under Fast & Easy."
         )
         self._edema_hint.setStyleSheet("color: #888; font-size: 11px;")
         self._edema_hint.setWordWrap(True)

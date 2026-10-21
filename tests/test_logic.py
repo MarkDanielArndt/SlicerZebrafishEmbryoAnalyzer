@@ -61,7 +61,7 @@ def test_analyse_images_returns_one_result_per_image(tmp_path, synthetic_fish_im
 
 
 def test_analyse_images_computes_edema_area(tmp_path, synthetic_fish_image, mock_model_paths):
-    """With edema requested on the DESY model, the returned result carries the mask
+    """With edema requested on the Fast model, the returned result carries the mask
     and a non-zero physical area computed from it."""
     import cv2
     img_path = str(tmp_path / "fish.png")
@@ -88,7 +88,7 @@ def test_analyse_images_computes_edema_area(tmp_path, synthetic_fish_image, mock
             [img_path],
             {"length": False, "curvature": False, "ratio": False,
              "eyes": False, "edema": True, "hitl": False, "threshold": 0.85,
-             "um_per_px": 22.99, "model_id": "desy"},
+             "um_per_px": 22.99, "model_id": "fast"},
         )
 
     assert len(results) == 1
@@ -100,7 +100,6 @@ def test_analyse_images_computes_edema_area(tmp_path, synthetic_fish_image, mock
 @pytest.mark.parametrize("model_id,expected_size,expected_type", [
     ("fast",    (256, 256), "Unet"),
     ("general", (512, 512), "FPN"),
-    ("desy",    (512, 512), "FPN"),
 ])
 def test_analyse_images_threads_preset_resolution_and_architecture(
     tmp_path, synthetic_fish_image, mock_model_paths, model_id, expected_size, expected_type
@@ -245,7 +244,7 @@ def test_analyse_images_raises_model_not_cached_when_edema_missing(tmp_path, syn
                 [img_path],
                 {"length": False, "curvature": False, "ratio": False,
                  "eyes": False, "edema": True, "hitl": False, "threshold": 0.85,
-                 "um_per_px": 22.99, "model_id": "desy"},
+                 "um_per_px": 22.99, "model_id": "fast"},
             )
 
 

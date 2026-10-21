@@ -75,7 +75,16 @@ def test_scalebar_needs_only_vision_packages(monkeypatch):
                         lambda n: False)
     result = get_missing_packages("scalebar")
     assert result["torch"] == []
-    assert set(result["general"]) == {"opencv-python-headless", "pytesseract"}
+    assert set(result["general"]) == {"opencv-python-headless", "pytesseract",
+                                      "scikit-image", "zebrafish-measure"}
+
+
+def test_scalebar_reports_zebrafish_measure_missing_when_absent(monkeypatch):
+    monkeypatch.setattr("ZebrafishEmbryoAnalyzerLib.dependency_installer._is_importable",
+                        lambda n: n != "zebrafish-measure")
+    result = get_missing_packages("scalebar")
+    assert result["torch"] == []
+    assert result["general"] == ["zebrafish-measure"]
 
 
 def test_analysis_needs_everything(monkeypatch):
@@ -163,6 +172,65 @@ def test_install_packages_uses_a_single_pip_invocation(monkeypatch):
     di.install_packages({"torch": [], "general": ["timm", "scikit-image", "openpyxl"]},
                         pip_fn=pip_fn, torch_fn=MagicMock())
     pip_fn.assert_called_once_with("timm scikit-image openpyxl")
+
+
+def test_is_importable_maps_zebrafish_measure_alias(monkeypatch):
+    import importlib.util
+    seen = []
+    monkeypatch.setattr(importlib.util, "find_spec", lambda n: seen.append(n) or None)
+    assert _is_importable("zebrafish-measure") is False
+    assert seen == ["zebrafish_measure"]
+
+
+def test_zebrafish_measure_reported_missing_when_module_absent(monkeypatch):
+    monkeypatch.setattr("ZebrafishEmbryoAnalyzerLib.dependency_installer._is_importable",
+                        lambda n: n != "zebrafish-measure")
+    result = get_missing_packages("analysis")
+    assert result["general"] == ["zebrafish-measure"]
+
+
+def test_zebrafish_measure_installed_separately_with_no_deps_after_main_call(monkeypatch):
+    di, _ = _reload_with_slicer(monkeypatch)
+    pip_fn = MagicMock()
+    di.install_packages({"torch": [], "general": ["timm", "zebrafish-measure", "openpyxl"]},
+                        pip_fn=pip_fn, torch_fn=MagicMock())
+    assert [c.args[0] for c in pip_fn.call_args_list] == [
+        "timm openpyxl", "--no-deps zebrafish-measure==0.2.0"]
+
+
+def test_only_no_deps_call_when_only_zebrafish_measure_missing(monkeypatch):
+    di, _ = _reload_with_slicer(monkeypatch)
+    pip_fn = MagicMock()
+    result = di.install_packages({"torch": [], "general": ["zebrafish-measure"]},
+                                 pip_fn=pip_fn, torch_fn=MagicMock())
+    pip_fn.assert_called_once_with("--no-deps zebrafish-measure==0.2.0")
+    assert result == "ready"
+
+
+def test_zebrafish_measure_failure_returns_failed(monkeypatch):
+    di, _ = _reload_with_slicer(monkeypatch)
+    pip_fn = MagicMock(side_effect=[None, RuntimeError("simulated failure")])
+    assert di.install_packages({"torch": [], "general": ["timm", "zebrafish-measure"]},
+                               pip_fn=pip_fn, torch_fn=MagicMock()) == "failed"
+
+
+def test_zebrafish_measure_failure_returns_restart_if_numpy_changed(monkeypatch):
+    """numpy was replaced by the main call before the second pip call failed: the user
+    must still be told to restart."""
+    di, _ = _reload_with_slicer(monkeypatch, platform="darwin")
+    versions = iter(["2.4.6", "1.26.4"])
+    monkeypatch.setattr(di, "_numpy_version", lambda: next(versions))
+    pip_fn = MagicMock(side_effect=[None, RuntimeError("simulated failure")])
+    assert di.install_packages({"torch": [], "general": ["timm", "zebrafish-measure"]},
+                               pip_fn=pip_fn, torch_fn=MagicMock()) == "restart"
+
+
+def test_zebrafish_measure_not_attempted_when_main_call_fails(monkeypatch):
+    di, _ = _reload_with_slicer(monkeypatch)
+    pip_fn = MagicMock(side_effect=RuntimeError("simulated failure"))
+    assert di.install_packages({"torch": [], "general": ["timm", "zebrafish-measure"]},
+                               pip_fn=pip_fn, torch_fn=MagicMock()) == "failed"
+    pip_fn.assert_called_once_with("timm")
 
 
 def test_install_reports_ready_when_numpy_was_not_replaced(monkeypatch):
