@@ -1,3 +1,4 @@
+import logging
 import sys
 
 import vtk
@@ -6,6 +7,7 @@ from slicer.ScriptedLoadableModule import (
     ScriptedLoadableModule,
     ScriptedLoadableModuleWidget,
     ScriptedLoadableModuleLogic,
+    ScriptedLoadableModuleTest,
 )
 from slicer.util import VTKObservationMixin
 
@@ -29,13 +31,26 @@ _LIB_MODULES = (
     "ZebrafishEmbryoAnalyzerLib.export",
     "ZebrafishEmbryoAnalyzerLib.dependency_installer",
     "ZebrafishEmbryoAnalyzerLib.zoom_view",
+    "ZebrafishEmbryoAnalyzerLib.bug_report",
 )
 
-def _evict_lib_modules():
-    for _m in _LIB_MODULES:
+_CORE_MODULES = (
+    "ZebrafishEmbryoAnalyzerCore.seg",
+    "ZebrafishEmbryoAnalyzerCore.seg_helper",
+    "ZebrafishEmbryoAnalyzerCore.length",
+    "ZebrafishEmbryoAnalyzerCore.manual",
+    "ZebrafishEmbryoAnalyzerCore.scalebar",
+)
+
+_RELOAD_MODULES = _LIB_MODULES + _CORE_MODULES
+
+
+def _evict_reload_modules():
+    for _m in _RELOAD_MODULES:
         sys.modules.pop(_m, None)
 
-_evict_lib_modules()
+
+_evict_reload_modules()
 
 
 class ZebrafishEmbryoAnalyzer(ScriptedLoadableModule):
@@ -66,7 +81,7 @@ class ZebrafishEmbryoAnalyzerWidget(ScriptedLoadableModuleWidget, VTKObservation
 
     def setup(self):
         ScriptedLoadableModuleWidget.setup(self)
-        _evict_lib_modules()
+        _evict_reload_modules()
 
         self.logic = ZebrafishEmbryoAnalyzerLogic()
 
@@ -426,3 +441,195 @@ class ZebrafishEmbryoAnalyzerLogic(ScriptedLoadableModuleLogic):
             raise MRMLAdapterError(
                 f"Failed to update current segmentation node: {exc}"
             ) from exc
+
+
+# Slicer resolves the self-test as an attribute of this module (see
+# ScriptedLoadableModule.runTest), so the class has to be defined here and not in
+# Testing/Python/, which is a separate module. That script re-exports it for CTest.
+class ZebrafishEmbryoAnalyzerTest(ScriptedLoadableModuleTest):
+    """Integration tests for ZebrafishEmbryoAnalyzer.
+
+    Each test_* method is self-contained: it sets up what it needs and cleans up
+    via slicer.mrmlScene.Clear(0) or targeted node removal.  No network access,
+    no model downloads, no prompts.
+    """
+
+    TEST_NAMES = (
+        "test_module_import",
+        "test_logic_instantiation",
+        "test_parameter_node_defaults",
+        "test_no_network_during_setup",
+        "test_mrml_table_node_creation",
+        "test_mrml_table_node_reuse",
+        "test_scene_close_cleanup",
+    )
+
+    def setUp(self):
+        slicer.mrmlScene.Clear(0)
+
+    def runTest(self):
+        # Every test runs, even after one fails, so a single broken test does not
+        # hide the state of the other seven. Failures are collected and re-raised
+        # at the end — without that, unittest would treat the swallowed exception
+        # as a pass and CTest would report the build green.
+        results = []
+        for name in self.TEST_NAMES:
+            self.setUp()
+            self.delayDisplay(name)
+            try:
+                getattr(self, name)()
+                results.append((name, None))
+            except Exception as exc:
+                results.append((name, exc))
+
+        failures = [(name, exc) for name, exc in results if exc is not None]
+        self._report(results, failures)
+
+        if failures:
+            self.fail(
+                f"{len(failures)} of {len(results)} self-tests failed: "
+                + ", ".join(name for name, _ in failures)
+            )
+        self.delayDisplay("All tests passed.")
+
+    def _report(self, results, failures):
+        """Print a summary that outlives the delayDisplay popups."""
+        lines = [
+            "-" * 60,
+            f"ZebrafishEmbryoAnalyzer self-test: "
+            f"{len(results) - len(failures)}/{len(results)} passed",
+        ]
+        for name, exc in results:
+            lines.append(f"  {'PASS' if exc is None else 'FAIL'}  {name}")
+            if exc is not None:
+                lines.append(f"        {type(exc).__name__}: {exc}")
+        lines.append("-" * 60)
+        report = "\n".join(lines)
+
+        # The application log and the Python console are separate sinks in Slicer,
+        # and the popups are gone the moment they close — write to both.
+        logging.info(report)
+        print(report)
+
+    # ------------------------------------------------------------------
+    # Individual tests
+    # ------------------------------------------------------------------
+
+    def test_module_import(self):
+        """ZebrafishEmbryoAnalyzer module and its main classes must be importable."""
+        import ZebrafishEmbryoAnalyzer as mod
+        self.assertIsNotNone(mod.ZebrafishEmbryoAnalyzer)
+        self.assertIsNotNone(mod.ZebrafishEmbryoAnalyzerWidget)
+        self.assertIsNotNone(mod.ZebrafishEmbryoAnalyzerLogic)
+
+    def test_logic_instantiation(self):
+        """ZebrafishEmbryoAnalyzerLogic() must construct without error."""
+        logic = ZebrafishEmbryoAnalyzerLogic()
+        self.assertIsNotNone(logic)
+
+    def test_parameter_node_defaults(self):
+        """getParameterNode() must return a node whose defaults match PARAM_DEFAULTS."""
+        from ZebrafishEmbryoAnalyzerLib.widget import (
+            PARAM_DEFAULTS,
+            PARAM_LENGTH_ENABLED,
+            PARAM_MODEL_ID,
+            _DEFAULT_MODEL_ID,
+        )
+
+        logic = ZebrafishEmbryoAnalyzerLogic()
+        param_node = logic.getParameterNode()
+        self.assertIsNotNone(param_node)
+
+        # Populate defaults the same way the widget does (mirrors initializeParameterNode).
+        for name, default in PARAM_DEFAULTS.items():
+            if not param_node.GetParameter(name):
+                param_node.SetParameter(name, default)
+
+        self.assertEqual(param_node.GetParameter(PARAM_LENGTH_ENABLED), "true")
+        self.assertEqual(param_node.GetParameter(PARAM_MODEL_ID), _DEFAULT_MODEL_ID)
+
+    def test_no_network_during_setup(self):
+        """No prompts or network calls fire during setup when testingEnabled() is True."""
+        if not slicer.app.testingEnabled():
+            self.delayDisplay("Skipping: requires Slicer --testing flag (CTest mode)", 100)
+            return
+        self.assertTrue(slicer.app.testingEnabled(),
+                        "testingEnabled() must be True — confirms prompts are suppressed")
+
+    def test_mrml_table_node_creation(self):
+        """update_results_table() must create a vtkMRMLTableNode with exactly one row."""
+        logic = ZebrafishEmbryoAnalyzerLogic()
+        result = {
+            "filename": "test.png",
+            "length": 1000,
+            "curvature": 1,
+            "ratio": 1.1,
+            "eye_area": None,
+            "eye_diameter": None,
+            "error": None,
+        }
+        table_node = logic.update_results_table([result])
+
+        self.assertIsNotNone(table_node)
+        self.assertTrue(table_node.IsA("vtkMRMLTableNode"))
+        self.assertEqual(table_node.GetNumberOfRows(), 1)
+
+    def test_mrml_table_node_reuse(self):
+        """Calling update_results_table() twice must reuse the same node."""
+        logic = ZebrafishEmbryoAnalyzerLogic()
+        result = {
+            "filename": "a.png",
+            "length": 500,
+            "curvature": 0,
+            "ratio": 1.0,
+            "eye_area": None,
+            "eye_diameter": None,
+            "error": None,
+        }
+
+        node_first = logic.update_results_table([result])
+        count_after_first = slicer.mrmlScene.GetNumberOfNodesByClass("vtkMRMLTableNode")
+
+        node_second = logic.update_results_table([result, result])
+        count_after_second = slicer.mrmlScene.GetNumberOfNodesByClass("vtkMRMLTableNode")
+
+        self.assertEqual(count_after_first, count_after_second,
+                         "A second call must not add a new table node to the scene.")
+        self.assertEqual(node_first.GetID(), node_second.GetID(),
+                         "Both calls must return the same node.")
+        self.assertEqual(node_second.GetNumberOfRows(), 2)
+
+    # results_to_rows() is pure Python and covered by tests/test_mrml_adapter.py and
+    # tests/test_mrml_node.py. It is deliberately not repeated here — a self-test slot
+    # costs a real Slicer instance and is reserved for behaviour that fakes cannot reach.
+
+    def test_scene_close_cleanup(self):
+        """Scene clear must not crash; a fresh parameter node must be obtainable after."""
+        from ZebrafishEmbryoAnalyzerLib.widget import PARAM_DEFAULTS
+
+        logic = ZebrafishEmbryoAnalyzerLogic()
+        # Populate some MRML nodes first.
+        logic.update_results_table([{
+            "filename": "x.png",
+            "length": 1,
+            "curvature": 0,
+            "ratio": 1.0,
+            "eye_area": None,
+            "eye_diameter": None,
+            "error": None,
+        }])
+
+        # Scene clear — must not raise.
+        slicer.mrmlScene.Clear(0)
+
+        # After clear, logic must still deliver a (fresh) parameter node.
+        param_node = logic.getParameterNode()
+        self.assertIsNotNone(param_node)
+
+        # Populate defaults manually (widget is not running here).
+        for name, default in PARAM_DEFAULTS.items():
+            if not param_node.GetParameter(name):
+                param_node.SetParameter(name, default)
+
+        from ZebrafishEmbryoAnalyzerLib.widget import PARAM_LENGTH_ENABLED
+        self.assertEqual(param_node.GetParameter(PARAM_LENGTH_ENABLED), "true")

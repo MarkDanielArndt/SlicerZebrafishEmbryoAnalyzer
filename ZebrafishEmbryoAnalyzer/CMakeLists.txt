@@ -5,6 +5,7 @@ slicerMacroBuildScriptedModule(
   SCRIPTS
     ${MODULE_NAME}.py
     ZebrafishEmbryoAnalyzerLib/__init__.py
+    ZebrafishEmbryoAnalyzerLib/bug_report.py
     ZebrafishEmbryoAnalyzerLib/dependency_installer.py
     ZebrafishEmbryoAnalyzerLib/detail_tab.py
     ZebrafishEmbryoAnalyzerLib/errors.py
