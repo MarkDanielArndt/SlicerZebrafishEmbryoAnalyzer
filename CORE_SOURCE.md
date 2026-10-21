@@ -1,38 +1,97 @@
-# Core source provenance
+# Core source
 
-`ZebrafishEmbryoAnalyzer/ZebrafishEmbryoAnalyzerCore/` is a manually-maintained
-port of the analysis engine from the reference webapp
-(`markdanielarndt/Zebrafish_webapp`, live deployment at
-`https://huggingface.co/spaces/markdanielarndt/Zebrafish`). This file exists
-so a future manual re-sync (webapp adds/changes a feature, this extension
-needs to catch up, or vice versa) is a targeted diff against a known state
-instead of a full re-read of both codebases.
+`ZebrafishEmbryoAnalyzer/ZebrafishEmbryoAnalyzerCore/` is a thin lazy
+re-export layer over the PyPI library `zebrafish-measure`, pinned to
+`==0.2.0` (repository: github.com/MarkDanielArndt/zebrafish-measure). The
+library is derived from the reference webapp
+(`markdanielarndt/Zebrafish_webapp`, live at
+`https://huggingface.co/spaces/markdanielarndt/Zebrafish`) and is the single
+source of truth for the analysis engine.
 
-**Ground truth for "current webapp behavior" is always the live HF Space**
-(`.../raw/main/<file>.py`), not any local clone of the webapp repo — local
-clones have been observed to drift out of date (e.g. missing swim bladder
-segmentation, the edema UI, and the brush-based mask editor that are live in
-the deployed app as of 2026-07-20).
+`length.py`, `seg.py`, `seg_helper.py` and `scalebar.py` in Core contain no
+analysis code. Each is a PEP 562 module-level `__getattr__` that resolves a
+name from `zebrafish_measure.<module>` on access. Importing a shim does not
+import the library (nor torch, cv2, ...), and nothing is cached on the shim, so
+`mock.patch` on these names works. `manual.py` is Slicer-only and stays here.
 
-## Provenance table
+Switch date: 2026-10-21. Library source state: zebrafish-measure v0.2.0 (commit
+`4c1b128`).
 
-| Core file (this repo) | Webapp source | Ported functions | State at last sync | Deliberate deviations |
-|---|---|---|---|---|
-| `seg.py` | `seg.py` | `_load_unet_model`, `segmentation_pipeline` | 2026-07-29 (webapp `app.py`/`seg.py`; the live HF Space and the webapp's GitHub repo were byte-identical for both files at that date) | `model_type` support (`"Unet"`/`"FPN"`) and the `include_swimbladder` path were re-synced on 2026-07-29; the pipeline's own defaults are kept identical to the webapp's so a future diff stays short. Return arity differs: the webapp enumerates the flag combinations explicitly, this port appends the requested masks in a fixed order (eyes, edema, swim bladder), which the caller unpacks by the flags it passed. No Hugging Face Hub download in this layer — `_load_unet_model` only accepts a local `model_path`/`filename`; `repo_id`/`revision`/`force_download` params are accepted for call-site compatibility but ignored. Downloading is `ZebrafishEmbryoAnalyzerLib/model_downloader.py`'s job, driven by `ZebrafishEmbryoAnalyzerLib/model_manifest.py` (webapp downloads directly via `huggingface_hub.hf_hub_download` inline). |
-| `seg_helper.py` | `seg.py` (helpers were inline in the webapp's single seg module at the time of the original port) | `load_images_from_path`, `segment_fish`, `fill_holes`, `grow_mask` | 2026-07-20 | None known — pure numpy/opencv, kept close to the original logic. |
-| `length.py` | `length.py` | `compute_eye_metrics`, `compute_eye_diameters`, `tube_length_border2border`, `classification_curvature`, `load_model`, `preprocess_masked_image`, `compute_tube_metrics` | 2026-07-29 (`compute_tube_metrics`; rest 2026-07-20) | `compute_tube_metrics` ported near-verbatim on 2026-07-29 from the live Space; only deviation is a deferred `import cv2` inside the function body, matching this repo's lazy-import convention for compiled extensions. `select_torch_device` is ours, not the webapp's — it probes the real model on a dummy input to catch a CUDA kernel/compute-capability mismatch that `torch.cuda.is_available()` does not detect, and `classification_curvature`/`load_model` were adjusted to read the device off the model rather than recomputing availability. Webapp's older, unused geometric curvature-profile functions (`compute_curvature_profile`/`compute_curvature`) were intentionally not ported since the webapp itself doesn't wire them into its own pipeline either. |
-| `manual.py` | `manual.py` | `compute_manual_length` | 2026-07-20 | None — module docstring already states this is shared logic between the webapp and this extension. |
-| `scalebar.py` | `scalebar.py` | `detect_scalebar`, `calibrate_from_endpoints`, `draw_scalebar_endpoints` | 2026-07-20 | None known. `calibrate_from_endpoints`/`draw_scalebar_endpoints` exist here but (until issue #76) have no Slicer UI wired up to call them — the webapp exposes them via its manual scale-bar entry accordion. |
+History: until this change Core was a manually maintained port of the webapp
+(last synced 2026-07-20 for most files and 2026-07-29 for `seg.py` and
+`compute_tube_metrics`). The per-file provenance table was removed with it.
+
+## Installation and pin
+
+`dependency_installer.py` installs the library into Slicer's Python with
+`pip install --no-deps zebrafish-measure==0.2.0` (constants
+`ZEBRAFISH_MEASURE_PACKAGE` / `ZEBRAFISH_MEASURE_REQUIREMENT`). `--no-deps`
+keeps pip from touching Slicer's numpy, scipy, torch and friends. CI installs the
+same pin (`.github/workflows/ci.yml`). The library needs Python >= 3.10.
+
+### Upgrade procedure
+
+1. Bump the version in `ZEBRAFISH_MEASURE_REQUIREMENT` in
+   `ZebrafishEmbryoAnalyzerLib/dependency_installer.py` and in the
+   `pip install --no-deps zebrafish-measure==...` step of
+   `.github/workflows/ci.yml`, together, in one change.
+2. Re-run the parity check (results through the Core shims against the previous
+   version on the same images, including the `logic.py` call sites) and the test
+   suite.
+3. Record any behaviour change in this file.
+
+## Slicer-specific behaviour
+
+Handled through arguments in `ZebrafishEmbryoAnalyzerLib/logic.py`
+(`_install_model_cache`, `_seg_kwargs`):
+
+- No Hugging Face download during analysis: the segmentation model calls pass
+  `local_only=True`, so the library loads a local file only. The curvature
+  classifier is local because `load_model(path)` is given a path
+  (`weights_only=True`, `pretrained=False`, CUDA probe with CPU fallback).
+  Downloading is `model_downloader.py`'s job, driven by `model_manifest.py`.
+- Local-only loading uses `weights_only` checkpoint loading inside the library.
+- Segmentation runs with `device="cpu"`.
+- The fixed mask return order (eyes, edema, swim bladder) is preserved by the
+  library.
+- Swim bladder: `swimbladder_biggest_only=False` and
+  `swimbladder_boundary_offset_px=None` (no boundary offset).
+- Each manifest entry names its `encoder` and `model_type` explicitly
+  (`encoder_name` / `model_type` and the eye/edema/swim-bladder variants are
+  passed per model).
+
+Remains Slicer-only:
+
+- `manual.py` (`compute_manual_length`).
+- The model downloader with pinned revisions and SHA-256 verification, and
+  `model_manifest.py`.
+- The CUDA probe for the curvature classifier, now via the library's
+  `select_torch_device`.
+
+## Behaviour changes of the switch to the library
+
+- Eye-assisted tube length now uses the library/webapp head-point routing and
+  `length_smoothing_sigma=2.0` (the library default), so those lengths can differ
+  from earlier versions.
+- The library builds Unet/FPN with `encoder_weights=None`, so analysis no longer
+  downloads ImageNet encoder weights (the checkpoint overwrites them anyway).
+- The `compute_curvature*` plotting helpers are now available through the
+  `length` shim but are unused by this extension.
+- Optional models (eyes, edema, swim bladder) now raise `RuntimeError` on a
+  corrupt checkpoint in local-only mode instead of returning an empty mask.
 
 ## Model presets and weights
 
-Not a core `.py` port, but the same re-sync problem: `ZebrafishEmbryoAnalyzerLib/model_manifest.py`
-mirrors the webapp's `SEG_MODEL_OPTIONS` table. Synced 2026-07-29.
+History: desy preset removed 2026-10-21: DESY models are webapp-only; the
+library's eye-assisted length routing was not validated for that setup.
+
+`ZebrafishEmbryoAnalyzerLib/model_manifest.py` mirrors the webapp's
+`SEG_MODEL_OPTIONS` table. Synced 2026-07-29.
 
 Read that table together with the comment directly above it and with the call
 site in `process()`. **A `None` filename there means "use the pipeline default",
 not "this preset has no such model."** Reading it the other way produced two
-wrong implementations on 2026-07-29 (edema wrongly restricted to the DESY
+wrong implementations on 2026-07-29 (edema wrongly restricted to one
 preset, and the Fast & Easy body model discarded as a legacy file). Ports of
 this table should be checked against the *resolved* filenames, not the literal
 cell contents.
@@ -41,10 +100,9 @@ cell contents.
 |---|---|---|---|
 | `Fast & Easy (256 px, ~2s/image)` | `fast` | 256 | Body/eye/edema/swim-bladder all resolve to the pipeline defaults. Its swim bladder model is Unet + vgg16, unlike the 512px presets' FPN + vgg19. |
 | `Complex & Slower (512 px, ~7s/image)` | `general` | 512 | Names body, eye and swim bladder explicitly; edema falls through to the default. |
-| `Fine-tuned DESY` | `desy` | 512 | Names all four explicitly. |
 
 The combo-box labels are the webapp's verbatim so users recognise the same
-presets in both tools. The stable ids (`fast`/`general`/`desy`) are **not** the
+presets in both tools. The stable ids (`fast`/`general`) are **not** the
 webapp's strings — they are persisted in the MRML parameter node and travel
 inside saved scenes, so they must not be renamed to match a display label.
 
@@ -64,13 +122,10 @@ wire it into `MODEL_SETS["general"]` under `"edema"`. The checkbox re-enables
 itself — `widget.py` only tests `"edema" in model_set` — and no other change is
 needed.
 
-## Convention for future ports
+## Convention
 
-See `CLAUDE.md` → "Code style" for the naming/signature convention: keep
-ported functions close to the webapp original (same name, same signature)
-unless there's a concrete reason to diverge, and note the reason inline as a
-short comment when there is one. Update the table above whenever a function
-is newly ported or re-synced, including the date and — where practical — a
-pointer to which webapp state (a git SHA, if the webapp source is inspected
-via its git history, or "as deployed on `<date>`" if inspected via the live
-Space) the port was taken from.
+See `CLAUDE.md` -> "Code style" for the naming/signature convention. Slicer
+code calls the library with the webapp's names and signatures; do not add
+analysis logic to the Core shims. If a change in the analysis engine is needed,
+make it in the webapp first, release it through `zebrafish-measure`, then bump the
+pin as described above.

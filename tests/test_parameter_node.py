@@ -141,12 +141,12 @@ def test_param_constants_defined_in_widget():
 
 
 def test_model_entries_uses_stable_ids():
-    """ComboBox must store string model IDs ('general', 'desy'), not data tuples."""
+    """ComboBox must store string model IDs ('fast', 'general'), not data tuples."""
     src = _src(_WIDGET_PY)
     assert "_MODEL_ENTRIES" in src, "_MODEL_ENTRIES not defined in widget.py"
     assert "_MODEL_BY_ID" in src, "_MODEL_BY_ID not defined in widget.py"
     assert '"general"' in src, "model ID 'general' not found in widget.py"
-    assert '"desy"' in src, "model ID 'desy' not found in widget.py"
+    assert '"fast"' in src, "model ID 'fast' not found in widget.py"
 
 
 def test_widget_has_update_gui_method():
@@ -248,7 +248,7 @@ def test_update_gui_applies_bool_and_float_values():
             "confidenceThresholdEnabled":  "true",
             "confidenceThreshold":         "0.75",
             "micrometersPerPixel":         "12.5",
-            "selectedModelId":             "desy",
+            "selectedModelId":             "fast",
         })
 
         w = object.__new__(ZebrafishEmbryoAnalyzerMainWidget)
@@ -265,7 +265,7 @@ def test_update_gui_applies_bool_and_float_values():
         w._um_per_px     = MagicMock()
         w._model_combo   = MagicMock()
         w._model_combo.count = 2
-        w._model_combo.itemData.side_effect = lambda i: ["general", "desy"][i]
+        w._model_combo.itemData.side_effect = lambda i: ["general", "fast"][i]
 
         w.updateGUIFromParameterNode(node)
 
@@ -276,7 +276,7 @@ def test_update_gui_applies_bool_and_float_values():
         w._chk_hitl.setChecked.assert_called_with(True)
         assert w._threshold_slider.value == 0.75,  w._threshold_slider.value
         assert w._um_per_px.value == 12.5,         w._um_per_px.value
-        w._model_combo.setCurrentIndex.assert_called_with(1)  # index of "desy"
+        w._model_combo.setCurrentIndex.assert_called_with(1)  # index of "fast"
 
         assert not w._updatingGUIFromParameterNode, "Guard not reset after call"
         print("OK")
@@ -307,12 +307,70 @@ def test_update_gui_unknown_model_id_falls_back_to_first():
         w._um_per_px     = MagicMock()
         w._model_combo   = MagicMock()
         w._model_combo.count = 2
-        w._model_combo.itemData.side_effect = lambda i: ["general", "desy"][i]
+        w._model_combo.itemData.side_effect = lambda i: ["general", "fast"][i]
 
         w.updateGUIFromParameterNode(node)
 
         # Unknown ID → setCurrentIndex(0) (first / default entry)
         w._model_combo.setCurrentIndex.assert_called_with(0)
+        print("OK")
+    """)
+    assert r.returncode == 0, r.stderr
+    assert "OK" in r.stdout
+
+
+def test_update_gui_removed_desy_id_falls_back_to_general():
+    """A scene saved with the removed 'desy' preset silently selects 'general'."""
+    r = _run(_MAIN_WIDGET_STUB, """
+        from unittest.mock import MagicMock
+        from ZebrafishEmbryoAnalyzerLib.widget import ZebrafishEmbryoAnalyzerMainWidget
+
+        node = _FakeNode({"selectedModelId": "desy"})
+
+        w = object.__new__(ZebrafishEmbryoAnalyzerMainWidget)
+        w._updatingGUIFromParameterNode = False
+        w._chk_length    = MagicMock()
+        w._chk_curvature = MagicMock()
+        w._chk_ratio     = MagicMock()
+        w._chk_eyes      = MagicMock()
+        w._chk_edema     = MagicMock()
+        w._edema_hint    = MagicMock()
+        w._chk_swimbladder = MagicMock()
+        w._chk_hitl      = MagicMock()
+        w._threshold_slider = MagicMock()
+        w._um_per_px     = MagicMock()
+        w._model_combo   = MagicMock()
+        w._model_combo.count = 2
+        w._model_combo.itemData.side_effect = lambda i: ["general", "fast"][i]
+
+        w.updateGUIFromParameterNode(node)
+
+        w._model_combo.setCurrentIndex.assert_called_with(0)  # index of "general"
+        print("OK")
+    """)
+    assert r.returncode == 0, r.stderr
+    assert "OK" in r.stdout
+
+
+def test_initialize_parameter_node_removed_desy_id_becomes_general():
+    """initializeParameterNode rewrites a stored 'desy' id to the default."""
+    r = _run(_WIDGET_STUB, """
+        from unittest.mock import MagicMock
+        from ZebrafishEmbryoAnalyzer import ZebrafishEmbryoAnalyzerWidget
+
+        node = _FakeNode({"selectedModelId": "desy"})
+        logic = MagicMock()
+        logic.getParameterNode.return_value = node
+
+        w = object.__new__(ZebrafishEmbryoAnalyzerWidget)
+        w._obs = []
+        w._parameterNode = None
+        w._main = None
+        w.logic = logic
+
+        w.initializeParameterNode()
+
+        assert node.GetParameter("selectedModelId") == "general", node._p
         print("OK")
     """)
     assert r.returncode == 0, r.stderr
@@ -341,7 +399,7 @@ def test_update_gui_missing_params_use_defaults():
         w._um_per_px     = MagicMock()
         w._model_combo   = MagicMock()
         w._model_combo.count = 2
-        w._model_combo.itemData.side_effect = lambda i: ["general", "desy"][i]
+        w._model_combo.itemData.side_effect = lambda i: ["general", "fast"][i]
 
         w.updateGUIFromParameterNode(node)
 
@@ -395,7 +453,7 @@ def test_update_node_from_gui_writes_all_params():
         w._chk_hitl      = MagicMock(); w._chk_hitl.isChecked.return_value      = True
         w._threshold_slider = MagicMock(); w._threshold_slider.value = 0.6
         w._um_per_px     = MagicMock(); w._um_per_px.value = 10.0
-        w._model_combo   = MagicMock(); w._model_combo.currentData = "desy"
+        w._model_combo   = MagicMock(); w._model_combo.currentData = "fast"
 
         w.updateParameterNodeFromGUI(node)
 
@@ -406,7 +464,7 @@ def test_update_node_from_gui_writes_all_params():
         assert node.GetParameter("confidenceThresholdEnabled")  == "true",   node._p
         assert node.GetParameter("confidenceThreshold")         == "0.6",    node._p
         assert node.GetParameter("micrometersPerPixel")         == "10.0",   node._p
-        assert node.GetParameter("selectedModelId")             == "desy",   node._p
+        assert node.GetParameter("selectedModelId")             == "fast",   node._p
         print("OK")
     """)
     assert r.returncode == 0, r.stderr
@@ -505,7 +563,7 @@ def test_round_trip_preserves_all_values():
         w._chk_hitl      = MagicMock(); w._chk_hitl.isChecked.return_value      = False
         w._threshold_slider = MagicMock(); w._threshold_slider.value = 0.42
         w._um_per_px     = MagicMock(); w._um_per_px.value = 5.1234
-        w._model_combo   = MagicMock(); w._model_combo.currentData = "desy"
+        w._model_combo   = MagicMock(); w._model_combo.currentData = "fast"
 
         w.updateParameterNodeFromGUI(node)
 
@@ -524,7 +582,7 @@ def test_round_trip_preserves_all_values():
         w2._um_per_px     = MagicMock()
         w2._model_combo   = MagicMock()
         w2._model_combo.count = 2
-        w2._model_combo.itemData.side_effect = lambda i: ["general", "desy"][i]
+        w2._model_combo.itemData.side_effect = lambda i: ["general", "fast"][i]
 
         w2.updateGUIFromParameterNode(node)
 
@@ -533,7 +591,7 @@ def test_round_trip_preserves_all_values():
         w2._chk_eyes.setChecked.assert_called_with(True)
         assert w2._threshold_slider.value == 0.42,  w2._threshold_slider.value
         assert w2._um_per_px.value == 5.1234,       w2._um_per_px.value
-        w2._model_combo.setCurrentIndex.assert_called_with(1)  # desy = index 1
+        w2._model_combo.setCurrentIndex.assert_called_with(1)  # fast = index 1
         print("OK")
     """)
     assert r.returncode == 0, r.stderr
@@ -792,7 +850,7 @@ def test_initialize_parameter_node_does_not_overwrite_valid_values():
             "confidenceThresholdEnabled":  "true",
             "confidenceThreshold":         "0.6",
             "micrometersPerPixel":         "50.0",
-            "selectedModelId":             "desy",
+            "selectedModelId":             "fast",
         })
         logic = MagicMock()
         logic.getParameterNode.return_value = node
@@ -807,7 +865,7 @@ def test_initialize_parameter_node_does_not_overwrite_valid_values():
 
         assert node.GetParameter("lengthEnabled")       == "false",   node._p
         assert node.GetParameter("eyesEnabled")         == "true",    node._p
-        assert node.GetParameter("selectedModelId")     == "desy",    node._p
+        assert node.GetParameter("selectedModelId")     == "fast",    node._p
         assert node.GetParameter("confidenceThreshold") == "0.6",     node._p
         assert node.GetParameter("micrometersPerPixel") == "50.0",    node._p
         print("OK")
@@ -1009,7 +1067,7 @@ def test_update_gui_invalid_bool_string_falls_back():
         w._um_per_px     = MagicMock()
         w._model_combo   = MagicMock()
         w._model_combo.count = 2
-        w._model_combo.itemData.side_effect = lambda i: ["general", "desy"][i]
+        w._model_combo.itemData.side_effect = lambda i: ["general", "fast"][i]
 
         w.updateGUIFromParameterNode(node)
 
@@ -1054,7 +1112,7 @@ def test_update_gui_nan_and_infinity_fall_back():
             w._um_per_px     = MagicMock()
             w._model_combo   = MagicMock()
             w._model_combo.count = 2
-            w._model_combo.itemData.side_effect = lambda i: ["general", "desy"][i]
+            w._model_combo.itemData.side_effect = lambda i: ["general", "fast"][i]
 
             w.updateGUIFromParameterNode(node)
 
@@ -1096,7 +1154,7 @@ def test_update_gui_out_of_range_numeric_falls_back():
         w._um_per_px     = MagicMock()
         w._model_combo   = MagicMock()
         w._model_combo.count = 2
-        w._model_combo.itemData.side_effect = lambda i: ["general", "desy"][i]
+        w._model_combo.itemData.side_effect = lambda i: ["general", "fast"][i]
 
         w.updateGUIFromParameterNode(node)
 
@@ -1137,7 +1195,7 @@ def test_update_gui_non_numeric_string_no_exception():
         w._um_per_px     = MagicMock()
         w._model_combo   = MagicMock()
         w._model_combo.count = 2
-        w._model_combo.itemData.side_effect = lambda i: ["general", "desy"][i]
+        w._model_combo.itemData.side_effect = lambda i: ["general", "fast"][i]
 
         w.updateGUIFromParameterNode(node)  # must not raise
 
@@ -1220,10 +1278,7 @@ def test_model_config_contract():
         assert general[1] == "vgg19",                   general
         assert general[2] is None,                      general
 
-        desy = _MODEL_BY_ID["desy"]
-        assert desy[0] == "desy_body_512_finetuned.pth", desy
-        assert desy[1] == "vgg19",                        desy
-        assert desy[2] == "desy_eye_512_finetuned.pth",  desy
+        assert "desy" not in _MODEL_BY_ID
 
         fast = _MODEL_BY_ID["fast"]
         assert fast[0] == "best_model_body_3400_vgg19.pth", fast
@@ -1267,7 +1322,7 @@ def test_edema_enabled_for_presets_that_offer_it():
         from unittest.mock import MagicMock
         from ZebrafishEmbryoAnalyzerLib.widget import ZebrafishEmbryoAnalyzerMainWidget
 
-        for model_id in ("fast", "desy"):
+        for model_id in ("fast",):
             w = object.__new__(ZebrafishEmbryoAnalyzerMainWidget)
             w._chk_edema = MagicMock()
             w._edema_hint    = MagicMock()
@@ -1385,7 +1440,7 @@ def test_update_gui_after_reset_applies_node_um_per_px():
         w._threshold_slider = MagicMock()
         w._model_combo   = MagicMock()
         w._model_combo.count = 2
-        w._model_combo.itemData.side_effect = lambda i: ["general", "desy"][i]
+        w._model_combo.itemData.side_effect = lambda i: ["general", "fast"][i]
 
         w.reset_for_scene_close()
         # Simulate the caller syncing from the new parameter node immediately after.

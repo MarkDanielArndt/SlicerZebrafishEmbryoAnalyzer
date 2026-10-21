@@ -22,7 +22,7 @@ _ML_PACKAGES = ("torch", "cv2", "segmentation_models_pytorch", "timm")
 # column quietly empty.
 _EDEMA_UNAVAILABLE = (
     "Edema segmentation is not available for the {model_id!r} model. "
-    "Use the Fast & Easy or Fine-tuned DESY model instead."
+    "Use the Fast & Easy model instead."
 )
 
 
@@ -53,7 +53,9 @@ def _install_model_cache():
     if _original_load_unet is not None:
         return
     import numpy as np  # noqa: F401 — must precede torch to enable numpy bridge  # noqa: F401
-    import ZebrafishEmbryoAnalyzerCore.seg as _seg_module
+    import zebrafish_measure.seg as _seg_module
+    # The library's segmentation_pipeline resolves _load_unet_model from the
+    # zebrafish_measure.seg globals, so that is the module to patch.
     # On Slicer module reload, logic.py globals reset but seg._load_unet_model
     # still holds the wrapper from the old instance → would recurse infinitely.
     # Stash the true original on seg so it survives logic.py reloads.
@@ -67,14 +69,15 @@ def _install_model_cache():
 
 def _cached_load_unet(model_path=None, repo_id=None, filename=None, label="model",
                        revision="main", force_download=False, encoder_name="vgg16",
-                       model_type="Unet"):
+                       model_type="Unet", local_only=False, device=None):
     """Caching wrapper: first call loads from disk, subsequent calls return cached model."""
-    cache_key = f"_unet_{model_path or filename}_{encoder_name}_{model_type}"
+    cache_key = f"_unet_{model_path or filename}_{encoder_name}_{model_type}_{bool(local_only)}_{device}"
     if force_download or cache_key not in _MODEL_CACHE:
         _MODEL_CACHE[cache_key] = _original_load_unet(
             model_path=model_path, repo_id=repo_id, filename=filename,
             label=label, revision=revision, force_download=force_download,
             encoder_name=encoder_name, model_type=model_type,
+            local_only=local_only, device=device,
         )
     return _MODEL_CACHE[cache_key]
 
@@ -120,6 +123,9 @@ def preload_models(params: dict) -> None:
         model_path=str(body_path),
         label="body model",
         encoder_name=body_entry["encoder"],
+        model_type=body_entry.get("model_type", "Unet"),
+        local_only=True,
+        device="cpu",
     )
 
     if params.get("eyes", False):
@@ -134,6 +140,9 @@ def preload_models(params: dict) -> None:
             model_path=str(eye_path),
             label="eye model",
             encoder_name=eye_entry["encoder"],
+            model_type=eye_entry.get("model_type", "Unet"),
+            local_only=True,
+            device="cpu",
         )
 
     if params.get("edema", False):
@@ -148,6 +157,9 @@ def preload_models(params: dict) -> None:
             model_path=str(edema_path),
             label="edema model",
             encoder_name=edema_entry["encoder"],
+            model_type=edema_entry.get("model_type", "Unet"),
+            local_only=True,
+            device="cpu",
         )
 
     if params.get("swimbladder", False):
@@ -163,6 +175,8 @@ def preload_models(params: dict) -> None:
             label="swim bladder model",
             encoder_name=swim_entry["encoder"],
             model_type=swim_entry.get("model_type", "Unet"),
+            local_only=True,
+            device="cpu",
         )
 
 # ---------------------------------------------------------------------------
@@ -235,7 +249,7 @@ def analyse_images(image_paths: list, params: dict,
           hitl                           : bool  — use confidence threshold
           threshold                      : float 0–1
           um_per_px                      : float — physical scale (µm/pixel)
-          model_id                       : str   — "general" or "desy"
+          model_id                       : str   — "fast" or "general"
     progress_callback : callable(current, total) | None
 
     Returns
@@ -329,15 +343,27 @@ def analyse_images(image_paths: list, params: dict,
         include_edema=include_edema,
         include_swimbladder=include_swimbladder,
         body_model_path=str(body_path),
+        body_model_filename=body_entry["filename"],
         body_encoder_name=body_entry["encoder"],
+        body_model_type=body_entry.get("model_type", "Unet"),
+        local_only=True,
+        device="cpu",
+        swimbladder_biggest_only=False,
+        swimbladder_boundary_offset_px=None,
     )
     if include_eyes:
         _seg_kwargs["eye_model_path"] = str(eye_path)
+        _seg_kwargs["eye_model_filename"] = eye_entry["filename"]
+        _seg_kwargs["eye_encoder_name"] = eye_entry["encoder"]
+        _seg_kwargs["eye_model_type"] = eye_entry.get("model_type", "Unet")
     if include_edema:
         _seg_kwargs["edema_model_path"] = str(edema_path)
+        _seg_kwargs["edema_model_filename"] = edema_entry["filename"]
         _seg_kwargs["edema_encoder_name"] = edema_entry["encoder"]
+        _seg_kwargs["edema_model_type"] = edema_entry.get("model_type", "Unet")
     if include_swimbladder:
         _seg_kwargs["swimbladder_model_path"] = str(swim_path)
+        _seg_kwargs["swimbladder_model_filename"] = swim_entry["filename"]
         _seg_kwargs["swimbladder_encoder_name"] = swim_entry["encoder"]
         _seg_kwargs["swimbladder_model_type"] = swim_entry.get("model_type", "Unet")
 

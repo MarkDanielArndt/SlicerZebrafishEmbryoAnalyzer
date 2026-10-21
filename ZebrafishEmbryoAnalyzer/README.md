@@ -20,5 +20,5 @@ Slicer restart required after installation.
 
 ## Adding a model
 
-Edit `ZebrafishEmbryoAnalyzerCore/models/registry.py` — add one entry to
-`MODEL_REGISTRY` and optionally `MODEL_PRESETS`.
+Edit `ZebrafishEmbryoAnalyzerLib/model_manifest.py` — add one entry to
+`MODELS` and optionally reference it from `MODEL_SETS`.

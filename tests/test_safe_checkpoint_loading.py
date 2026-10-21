@@ -69,7 +69,13 @@ def test_no_weights_only_false_in_production():
 # ---------------------------------------------------------------------------
 
 def test_seg_loader_raises_runtime_error_on_bad_checkpoint(tmp_path):
-    """_load_unet_model raises RuntimeError when weights_only loading fails."""
+    """_load_unet_model(local_only=True) raises RuntimeError on a corrupt checkpoint."""
+    # find_spec instead of importorskip: importing torch/smp in the pytest process
+    # would leak into other tests that stub those modules; the subprocess imports them.
+    import importlib.util
+    for mod in ("torch", "segmentation_models_pytorch", "zebrafish_measure"):
+        if importlib.util.find_spec(mod) is None:
+            pytest.skip(f"{mod} not installed")
     # Write a file that is not a valid PyTorch state dict (simulates pickled model)
     bad_file = tmp_path / "bad.pth"
     bad_file.write_bytes(b"not a valid pytorch file")
@@ -78,32 +84,11 @@ def test_seg_loader_raises_runtime_error_on_bad_checkpoint(tmp_path):
     script = f"""
 import sys
 sys.path.insert(0, {module_dir!r})
-
-# Stub heavy dependencies
-import types
-for mod_name in ["segmentation_models_pytorch", "cv2", "slicer", "qt", "ctk"]:
-    sys.modules[mod_name] = types.ModuleType(mod_name)
-
-import torch
-
-# Patch torch.load to raise (simulates weights_only=True failure on bad file)
-_orig_load = torch.load
-def _patched_load(path, map_location=None, weights_only=False, **kw):
-    if weights_only:
-        raise RuntimeError("Weights only load failed for test")
-    return _orig_load(path, map_location=map_location, **kw)
-torch.load = _patched_load
-
-# Stub Unet
-import segmentation_models_pytorch as smp
-class FakeUnet:
-    def load_state_dict(self, sd): pass
-    def eval(self): pass
-smp.Unet = lambda **kw: FakeUnet()
-
 from ZebrafishEmbryoAnalyzerCore.seg import _load_unet_model
 try:
-    _load_unet_model(model_path={str(bad_file)!r}, label="test model")
+    _load_unet_model(model_path={str(bad_file)!r}, label="test model",
+                     encoder_name="vgg16", model_type="Unet",
+                     local_only=True, device="cpu")
     print("NO_ERROR")
 except RuntimeError as e:
     print("RUNTIME_ERROR:", str(e)[:80])
@@ -114,13 +99,11 @@ except Exception as e:
         [sys.executable, "-c", script],
         capture_output=True,
         text=True,
-        timeout=30,
+        timeout=120,
     )
-    # The function catches all exceptions and returns None, printing the error.
-    # The key assertion: weights_only=False fallback must NOT be used.
-    assert "weights_only=False" not in result.stdout + result.stderr, (
-        "seg.py fell back to weights_only=False"
-    )
+    out = result.stdout + result.stderr
+    assert "RUNTIME_ERROR:" in result.stdout, out
+    assert "weights_only=False" not in out, "seg.py fell back to weights_only=False"
 
 
 # ---------------------------------------------------------------------------
@@ -136,28 +119,33 @@ def test_timm_pretrained_false_in_production_code():
 
 
 # ---------------------------------------------------------------------------
-# Static: length.py load_model uses weights_only=True
+# Static: the library code the shims delegate to uses weights_only=True
+# (the Core shims themselves contain no loading code; the library's own test
+# suite covers its loaders in depth)
 # ---------------------------------------------------------------------------
 
-def test_length_py_load_model_uses_weights_only_true():
-    """length.py load_model must contain weights_only=True."""
-    length_path = os.path.join(CORE_DIR, "length.py")
-    assert os.path.isfile(length_path), f"length.py not found at {length_path}"
-    content = open(length_path).read()
-    assert "weights_only=True" in content, (
-        "length.py load_model does not contain weights_only=True"
-    )
+@pytest.mark.parametrize("submodule", ["length", "seg"])
+def test_library_loaders_use_weights_only_true(submodule):
+    """zebrafish_measure.<length|seg> must contain weights_only=True and never False."""
+    import importlib.util
+    spec = importlib.util.find_spec(f"zebrafish_measure.{submodule}")
+    assert spec is not None and spec.origin, "zebrafish-measure is not installed"
+    content = open(spec.origin, encoding="utf-8").read()
+    assert "weights_only=True" in content
+    assert "weights_only=False" not in content
 
 
-# ---------------------------------------------------------------------------
-# Static: seg.py uses weights_only=True
-# ---------------------------------------------------------------------------
-
-def test_seg_py_uses_weights_only_true():
-    """seg.py must contain weights_only=True."""
-    seg_path = os.path.join(CORE_DIR, "seg.py")
-    assert os.path.isfile(seg_path), f"seg.py not found at {seg_path}"
-    content = open(seg_path).read()
-    assert "weights_only=True" in content, (
-        "seg.py does not contain weights_only=True"
-    )
+def test_logic_always_passes_local_only_true():
+    """logic.py must never let the library contact Hugging Face: every
+    segmentation_pipeline kwargs dict and every _cached_load_unet call passes
+    local_only=True."""
+    import re
+    logic_path = os.path.join(LIB_DIR, "logic.py")
+    content = open(logic_path, encoding="utf-8").read()
+    # _seg_kwargs for segmentation_pipeline
+    assert re.search(r"_seg_kwargs\s*=\s*dict\((?:.|\n)*?local_only=True", content)
+    # each _cached_load_unet(...) call in preload_models (skip the def itself)
+    calls = re.findall(r"\n\s+_cached_load_unet\((.*?)\n\s{4,8}\)", content, re.S)
+    assert len(calls) == 4
+    for c in calls:
+        assert "local_only=True" in c

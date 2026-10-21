@@ -19,7 +19,11 @@ def _stub_slicer_ml_packages():
         if pkg not in sys.modules:
             sys.modules[pkg] = MagicMock()
             added.append(pkg)
-    yield
+    # The library memoises smp classes in _MODEL_TYPES on first use; reset it so
+    # each test's patched smp.Unet / smp.FPN is the one actually constructed.
+    import zebrafish_measure.seg as lib_seg
+    with patch.dict(lib_seg._MODEL_TYPES, clear=True):
+        yield
     for pkg in added:
         del sys.modules[pkg]
 
@@ -58,7 +62,7 @@ def test_segmentation_pipeline_returns_three_tuple(synthetic_fish_image, tmp_pat
 
     with patch.dict(sys.modules, {"torch": mock_torch}), \
          patch("segmentation_models_pytorch.Unet") as mock_unet, \
-         patch("ZebrafishEmbryoAnalyzerCore.seg.segment_fish") as mock_seg:
+         patch("zebrafish_measure.seg.segment_fish") as mock_seg:
 
         mock_unet.return_value = dummy_model
 
@@ -113,7 +117,7 @@ def test_segmentation_pipeline_sorted_order(tmp_path):
 
     with patch.dict(sys.modules, {"torch": mock_torch}), \
          patch("segmentation_models_pytorch.Unet") as mock_unet, \
-         patch("ZebrafishEmbryoAnalyzerCore.seg.segment_fish") as mock_seg:
+         patch("zebrafish_measure.seg.segment_fish") as mock_seg:
 
         mock_unet.return_value = dummy_model
         mock_seg.return_value = (pil_mask, confidence)
@@ -155,7 +159,7 @@ def test_segmentation_pipeline_include_eyes_returns_four_tuple(tmp_path):
 
     with patch.dict(sys.modules, {"torch": mock_torch}), \
          patch("segmentation_models_pytorch.Unet") as mock_unet, \
-         patch("ZebrafishEmbryoAnalyzerCore.seg.segment_fish") as mock_seg:
+         patch("zebrafish_measure.seg.segment_fish") as mock_seg:
 
         mock_unet.return_value = dummy_model
         mock_seg.return_value = (pil_mask, confidence)
@@ -199,7 +203,7 @@ def test_segmentation_pipeline_include_edema_only_returns_four_tuple(tmp_path):
 
     with patch.dict(sys.modules, {"torch": mock_torch}), \
          patch("segmentation_models_pytorch.Unet") as mock_unet, \
-         patch("ZebrafishEmbryoAnalyzerCore.seg.segment_fish") as mock_seg:
+         patch("zebrafish_measure.seg.segment_fish") as mock_seg:
 
         mock_unet.return_value = dummy_model
         mock_seg.return_value = (pil_mask, confidence)
@@ -244,7 +248,7 @@ def test_segmentation_pipeline_swimbladder_model_type_selects_architecture(tmp_p
     with patch.dict(sys.modules, {"torch": mock_torch}), \
          patch("segmentation_models_pytorch.Unet") as mock_unet, \
          patch("segmentation_models_pytorch.FPN") as mock_fpn, \
-         patch("ZebrafishEmbryoAnalyzerCore.seg.segment_fish") as mock_seg:
+         patch("zebrafish_measure.seg.segment_fish") as mock_seg:
 
         mock_unet.return_value = dummy_model
         mock_fpn.return_value = dummy_model
@@ -266,11 +270,10 @@ def test_segmentation_pipeline_swimbladder_model_type_selects_architecture(tmp_p
     mock_unet.assert_called_once()  # body model still uses Unet
 
 
-def test_segmentation_pipeline_swimbladder_defaults_to_unet(tmp_path):
-    """The pipeline's own defaults are the webapp's Fast & Easy 256px set, whose
-    swim bladder model is a Unet — so an unspecified model_type must not build an
-    FPN. (Production always passes the manifest's model_type explicitly; this
-    pins the default so a webapp re-sync diff stays honest.)"""
+def test_segmentation_pipeline_swimbladder_explicit_unet(tmp_path):
+    """An explicit swimbladder_model_type="Unet" must not build an FPN. (The library's
+    own default is now Segformer mit_b3; production always passes the manifest's
+    model_type explicitly, see test_logic_seg_kwargs.py.)"""
     import cv2
 
     dummy_img = np.zeros((64, 64, 3), dtype=np.uint8)
@@ -294,7 +297,7 @@ def test_segmentation_pipeline_swimbladder_defaults_to_unet(tmp_path):
     with patch.dict(sys.modules, {"torch": mock_torch}), \
          patch("segmentation_models_pytorch.Unet") as mock_unet, \
          patch("segmentation_models_pytorch.FPN") as mock_fpn, \
-         patch("ZebrafishEmbryoAnalyzerCore.seg.segment_fish") as mock_seg:
+         patch("zebrafish_measure.seg.segment_fish") as mock_seg:
 
         mock_unet.return_value = dummy_model
         mock_fpn.return_value = dummy_model
@@ -306,6 +309,7 @@ def test_segmentation_pipeline_swimbladder_defaults_to_unet(tmp_path):
             include_swimbladder=True,
             body_model_path=body_model_path,
             swimbladder_model_path=swim_model_path,
+            swimbladder_model_type="Unet",
         )
 
     mock_fpn.assert_not_called()
@@ -315,7 +319,7 @@ def test_segmentation_pipeline_swimbladder_defaults_to_unet(tmp_path):
 def test_segmentation_pipeline_model_load_failure_raises(tmp_path):
     """RuntimeError is raised when the body model cannot be loaded."""
     import cv2
-    import ZebrafishEmbryoAnalyzerCore.seg as seg_mod
+    import zebrafish_measure.seg as seg_mod
 
     cv2.imwrite(str(tmp_path / "fish.png"), np.zeros((64, 64, 3), dtype=np.uint8))
 

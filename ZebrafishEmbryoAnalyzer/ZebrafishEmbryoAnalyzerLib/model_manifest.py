@@ -40,10 +40,9 @@ _CACHE_DIR = _default_cache_dir()
 # ---------------------------------------------------------------------------
 
 MODELS: dict = {
-    # Mirrors the webapp's three presets (SEG_MODEL_OPTIONS in its app.py):
-    # "Fast & Easy" (256px), "Complex & Slower" (512px — our "general"), and
-    # "Fine-tuned DESY" (512px). Every preset supports every optional
-    # segmentation; the presets differ only in weights and input resolution.
+    # Mirrors two of the webapp's presets (SEG_MODEL_OPTIONS in its app.py):
+    # "Fast & Easy" (256px) and "Complex & Slower" (512px — our "general").
+    # The webapp's third preset is webapp-only and not offered here.
     # In the webapp a `None` filename in that table means "use the pipeline
     # default", not "unavailable" — those defaults are the 256px files, which is
     # why Fast & Easy resolves to fast_eye/default_edema/fast_swimbladder below.
@@ -110,7 +109,7 @@ MODELS: dict = {
         "license": "LICENSE_PENDING",
         "preprocessing_compat": "v1",
     },
-    # The only non-DESY edema model, and it is 256px-era: the repo has no 512px
+    # The only edema model, and it is 256px-era: the repo has no 512px
     # general counterpart. The webapp falls back to it for its 512px preset too
     # (no edema filename named there -> pipeline default), feeding a 256px-trained
     # net 512px input. We deliberately do not follow that one step — see the
@@ -154,56 +153,6 @@ MODELS: dict = {
         "license": "LICENSE_PENDING",
         "preprocessing_compat": "v1",
     },
-    "desy_body": {
-        "id": "desy_body",
-        "repo_id": "markdanielarndt/Zebrafish_Segmentation",
-        "filename": "desy_body_512_finetuned.pth",
-        "revision": "237d21d6d7538fc5b661bf43b70f378f945991ee",
-        "label": "DESY body segmentation model (512 px)",
-        "encoder": "vgg19",
-        "sha256": "5e2ee9c72fd0f3a452123bcfa9fcceedd10c5d58ba5b9e70694ccc2227d35340",
-        "size_bytes": 116_290_507,
-        "license": "LICENSE_PENDING",
-        "preprocessing_compat": "v1",
-    },
-    "desy_eye": {
-        "id": "desy_eye",
-        "repo_id": "markdanielarndt/Zebrafish_Segmentation",
-        "filename": "desy_eye_512_finetuned.pth",
-        "revision": "237d21d6d7538fc5b661bf43b70f378f945991ee",
-        "label": "DESY eye segmentation model (512 px)",
-        "encoder": "vgg16",
-        "sha256": "661308b9be5ff31d386c67abfa80f9b897ed437ceca01b7c046b66704ee5fdb3",
-        "size_bytes": 95_049_257,
-        "license": "LICENSE_PENDING",
-        "preprocessing_compat": "v1",
-    },
-    # The only preset-specific edema model; the other two share default_edema.
-    "desy_edema": {
-        "id": "desy_edema",
-        "repo_id": "markdanielarndt/Zebrafish_Segmentation",
-        "filename": "desy_edema_512_finetuned.pth",
-        "revision": "237d21d6d7538fc5b661bf43b70f378f945991ee",
-        "label": "DESY edema segmentation model",
-        "encoder": "vgg19",
-        "sha256": "5c4c99299da84842bc2efa8aa42ae693b5d3bc5e30ad675b2772e4096e09728b",
-        "size_bytes": 116_289_947,
-        "license": "LICENSE_PENDING",
-        "preprocessing_compat": "v1",
-    },
-    "desy_swimbladder": {
-        "id": "desy_swimbladder",
-        "repo_id": "markdanielarndt/Zebrafish_Segmentation",
-        "filename": "desy_swimmbladder_512_finetuned.pth",
-        "revision": "237d21d6d7538fc5b661bf43b70f378f945991ee",
-        "label": "DESY swim bladder segmentation model",
-        "encoder": "vgg19",
-        "model_type": "FPN",
-        "sha256": "92a47377cf450d3fcb7ec52c7065d1e5b74e36b125460752496ff66837655d1c",
-        "size_bytes": 88_459_870,
-        "license": "LICENSE_PENDING",
-        "preprocessing_compat": "v1",
-    },
 }
 
 # ---------------------------------------------------------------------------
@@ -212,8 +161,7 @@ MODELS: dict = {
 
 MODEL_SETS: dict = {
     # A preset offers "edema" only where a resolution-matched model exists:
-    # fast pairs the 256px default with 256px input, desy has its own 512px
-    # model. "general" runs at 512px but no 512px general edema model exists, so
+    # fast pairs the 256px default with 256px input. "general" runs at 512px but no 512px general edema model exists, so
     # the role is omitted rather than silently running a 256px-trained net at
     # 512px the way the webapp does. widget.py greys the checkbox out there.
     "fast": {
@@ -229,13 +177,6 @@ MODEL_SETS: dict = {
         "curvature": MODELS["curvature"],
         "swimbladder": MODELS["general_swimbladder"],
     },
-    "desy": {
-        "body": MODELS["desy_body"],
-        "eye": MODELS["desy_eye"],
-        "curvature": MODELS["curvature"],
-        "edema": MODELS["desy_edema"],
-        "swimbladder": MODELS["desy_swimbladder"],
-    },
 }
 
 # Per-preset segmentation_pipeline() target_size, matching the webapp's own
@@ -246,7 +187,6 @@ MODEL_SETS: dict = {
 MODEL_TARGET_SIZE: dict = {
     "fast": (256, 256),
     "general": (512, 512),
-    "desy": (512, 512),
 }
 
 
