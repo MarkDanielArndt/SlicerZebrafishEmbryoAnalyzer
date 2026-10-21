@@ -222,9 +222,9 @@ def test_segmentation_pipeline_include_edema_only_returns_four_tuple(tmp_path):
 
 
 def test_segmentation_pipeline_swimbladder_model_type_selects_architecture(tmp_path):
-    """swimbladder_model_type="FPN" must construct an FPN, not a Unet — the 512px
-    swim bladder models are FPNs while the body model stays a Unet, so the two
-    architectures have to be selectable within a single pipeline call."""
+    """swimbladder_model_type="FPN" must construct an FPN, not a Unet — the swim
+    bladder model type is selectable independently of the body model type within
+    a single pipeline call."""
     import cv2
 
     dummy_img = np.zeros((64, 64, 3), dtype=np.uint8)

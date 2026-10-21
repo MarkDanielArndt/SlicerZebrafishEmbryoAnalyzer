@@ -1274,15 +1274,15 @@ def test_model_config_contract():
         from ZebrafishEmbryoAnalyzerLib.widget import _MODEL_BY_ID
 
         general = _MODEL_BY_ID["general"]
-        assert general[0] == "best_model_body_512.pth", general
-        assert general[1] == "vgg19",                   general
+        assert general[0] == "best_model_body_512_segformer_mit_b3.pth", general
+        assert general[1] == "mit_b3",                                  general
         assert general[2] is None,                      general
 
         assert "desy" not in _MODEL_BY_ID
 
         fast = _MODEL_BY_ID["fast"]
-        assert fast[0] == "best_model_body_3400_vgg19.pth", fast
-        assert fast[1] == "vgg19",                          fast
+        assert fast[0] == "best_model_body_256_segformer_mit_b3.pth", fast
+        assert fast[1] == "mit_b3",                                   fast
         assert fast[2] is None,                             fast
 
         print("OK")
@@ -1292,12 +1292,14 @@ def test_model_config_contract():
 
 
 def test_edema_greyed_out_for_preset_without_edema_model():
-    """"general" has no resolution-matched edema model. The checkbox must be both
-    disabled and unchecked — a checked-but-disabled box would still reach the
-    analysis request."""
+    """For a preset without an edema model (none shipped now; "general" is
+    patched to simulate one) the checkbox must be both disabled and unchecked —
+    a checked-but-disabled box would still reach the analysis request."""
     r = _run(_MAIN_WIDGET_STUB, """
         from unittest.mock import MagicMock
         from ZebrafishEmbryoAnalyzerLib.widget import ZebrafishEmbryoAnalyzerMainWidget
+        from ZebrafishEmbryoAnalyzerLib.model_manifest import MODEL_SETS
+        MODEL_SETS["general"] = {k: v for k, v in MODEL_SETS["general"].items() if k != "edema"}
 
         w = object.__new__(ZebrafishEmbryoAnalyzerMainWidget)
         w._chk_edema = MagicMock()
@@ -1322,7 +1324,7 @@ def test_edema_enabled_for_presets_that_offer_it():
         from unittest.mock import MagicMock
         from ZebrafishEmbryoAnalyzerLib.widget import ZebrafishEmbryoAnalyzerMainWidget
 
-        for model_id in ("fast",):
+        for model_id in ("fast", "general"):
             w = object.__new__(ZebrafishEmbryoAnalyzerMainWidget)
             w._chk_edema = MagicMock()
             w._edema_hint    = MagicMock()

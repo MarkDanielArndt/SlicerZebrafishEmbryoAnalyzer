@@ -103,6 +103,25 @@ def test_declining_stops_the_caller(monkeypatch):
         w._show_restart_dialog.assert_not_called()
 
 
+def test_outdated_package_is_listed_as_upgrade(monkeypatch):
+    with _stub_slicer_env():
+        cls = _widget_class()
+        w = _shell(cls)
+        slicer = sys.modules["slicer"]
+        slicer.app.testingEnabled.return_value = False
+        slicer.util.confirmOkCancelDisplay.return_value = False
+
+        import ZebrafishEmbryoAnalyzerLib.dependency_installer as di
+        monkeypatch.setattr(di, "get_missing_packages", lambda purpose="analysis":
+                            {"torch": [], "general": ["segmentation_models_pytorch", "timm"]})
+        monkeypatch.setattr(di, "_is_importable", lambda name: name != "timm")
+
+        cls.ensure_dependencies(w, "analysis")
+        detail = slicer.util.confirmOkCancelDisplay.call_args.kwargs["detailedText"]
+        assert "segmentation_models_pytorch (upgrade to >=0.4.0)" in detail
+        assert "timm" in detail and "timm (upgrade" not in detail
+
+
 def test_install_that_needs_no_restart_lets_the_caller_continue(monkeypatch):
     """A freshly installed package that this session never imported is usable straight
     away, so the action that triggered the install should simply carry on."""

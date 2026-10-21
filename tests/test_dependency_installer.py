@@ -1,4 +1,5 @@
 import importlib
+import importlib.metadata
 import sys
 from unittest.mock import MagicMock
 
@@ -223,6 +224,28 @@ def test_zebrafish_measure_failure_returns_restart_if_numpy_changed(monkeypatch)
     pip_fn = MagicMock(side_effect=[None, RuntimeError("simulated failure")])
     assert di.install_packages({"torch": [], "general": ["timm", "zebrafish-measure"]},
                                pip_fn=pip_fn, torch_fn=MagicMock()) == "restart"
+
+
+def test_zebrafish_measure_failure_returns_restart_if_package_upgraded_in_memory(monkeypatch):
+    """An already imported smp was upgraded by the main call: a restart is still needed
+    even though the zebrafish-measure call failed."""
+    di, _ = _reload_with_slicer(monkeypatch)
+    monkeypatch.setitem(sys.modules, "segmentation_models_pytorch", MagicMock())
+    pip_fn = MagicMock(side_effect=[None, RuntimeError("simulated failure")])
+    assert di.install_packages(
+        {"torch": [], "general": ["segmentation_models_pytorch", "zebrafish-measure"]},
+        pip_fn=pip_fn, torch_fn=MagicMock()) == "restart"
+
+
+@pytest.mark.parametrize("installed, too_old", [
+    ("0.4", False), ("0.3.4+cu118", True), ("0.3.0rc1", True), ("1.0.0rc1", False),
+    ("0.4.0.post1", False), ("0.4.0", False), ("0.3.2", True), ("garbage", False),
+])
+def test_too_old_parses_real_world_versions(monkeypatch, installed, too_old):
+    import importlib.metadata
+    di, _ = _reload_with_slicer(monkeypatch)
+    monkeypatch.setattr(importlib.metadata, "version", lambda name: installed)
+    assert di._too_old("segmentation_models_pytorch") is too_old
 
 
 def test_zebrafish_measure_not_attempted_when_main_call_fails(monkeypatch):
@@ -486,3 +509,58 @@ def test_install_pytorch_extension_skips_when_already_installed(monkeypatch):
 
     assert di.install_pytorch_extension() is True
     manager.installExtensionFromServer.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Minimum versions (segmentation_models_pytorch >= 0.4.0 for Segformer)
+# ---------------------------------------------------------------------------
+
+_DI = "ZebrafishEmbryoAnalyzerLib.dependency_installer"
+
+
+def _all_importable_with_smp_version(monkeypatch, version):
+    import importlib.metadata
+    monkeypatch.setattr(f"{_DI}._is_importable", lambda n: True)
+
+    def fake_version(name):
+        assert name == "segmentation-models-pytorch"
+        if isinstance(version, Exception):
+            raise version
+        return version
+
+    monkeypatch.setattr(importlib.metadata, "version", fake_version)
+
+
+def test_old_smp_reported_missing(monkeypatch):
+    _all_importable_with_smp_version(monkeypatch, "0.3.4")
+    assert get_missing_packages()["general"] == ["segmentation_models_pytorch"]
+
+
+@pytest.mark.parametrize("version", ["0.4.0", "0.5.1", "1.0.0", "0.4.0.post1"])
+def test_ok_smp_version_not_reported(monkeypatch, version):
+    _all_importable_with_smp_version(monkeypatch, version)
+    assert get_missing_packages()["general"] == []
+
+
+@pytest.mark.parametrize("version", ["weird", "", importlib.metadata.PackageNotFoundError("x")])
+def test_unreadable_smp_version_not_reported(monkeypatch, version):
+    _all_importable_with_smp_version(monkeypatch, version)
+    assert get_missing_packages()["general"] == []
+
+
+def test_pip_call_gets_minimum_version_requirement(monkeypatch):
+    di, _ = _reload_with_slicer(monkeypatch)
+    monkeypatch.delitem(sys.modules, "segmentation_models_pytorch", raising=False)
+    pip_fn = MagicMock()
+    result = di.install_packages({"torch": [], "general": ["segmentation_models_pytorch", "timm"]},
+                                 pip_fn=pip_fn, torch_fn=MagicMock())
+    pip_fn.assert_called_once_with("segmentation_models_pytorch>=0.4.0 timm")
+    assert result == "ready"
+
+
+def test_upgrading_already_imported_smp_requires_restart(monkeypatch):
+    di, _ = _reload_with_slicer(monkeypatch)
+    monkeypatch.setitem(sys.modules, "segmentation_models_pytorch", MagicMock())
+    result = di.install_packages({"torch": [], "general": ["segmentation_models_pytorch"]},
+                                 pip_fn=MagicMock(), torch_fn=MagicMock())
+    assert result == "restart"
