@@ -17,12 +17,12 @@ import tempfile
 _ML_PACKAGES = ("torch", "cv2", "segmentation_models_pytorch", "timm")
 
 # Only reachable through an inconsistent request — the widget greys the Edema
-# checkbox out for presets without a resolution-matched edema model. Raising
+# checkbox out for presets without an edema model (currently none). Raising
 # beats skipping silently, which would report a successful run with the edema
 # column quietly empty.
 _EDEMA_UNAVAILABLE = (
     "Edema segmentation is not available for the {model_id!r} model. "
-    "Use the Fast & Easy model instead."
+    "Choose a model that includes edema segmentation."
 )
 
 
@@ -348,8 +348,8 @@ def analyse_images(image_paths: list, params: dict,
         body_model_type=body_entry.get("model_type", "Unet"),
         local_only=True,
         device="cpu",
-        swimbladder_biggest_only=False,
-        swimbladder_boundary_offset_px=None,
+        swimbladder_biggest_only=True,
+        swimbladder_boundary_offset_px=-0.73,
     )
     if include_eyes:
         _seg_kwargs["eye_model_path"] = str(eye_path)
@@ -460,7 +460,8 @@ def analyse_images(image_paths: list, params: dict,
             if params.get("eyes", False) and eye_bin is not None and mask_bin is not None:
                 try:
                     info = compute_eye_metrics(
-                        eye_bin, mask_fish=mask_bin, spacing=spacing
+                        eye_bin, mask_fish=mask_bin, spacing=spacing,
+                        area_shrink_frac=0.05,
                     )
                     r["eye_area"]     = float(info.get("eye_area",     0))
                     r["eye_diameter"] = float(info.get("eye_diameter", 0))
@@ -479,7 +480,7 @@ def analyse_images(image_paths: list, params: dict,
             # ---- swim bladder metrics ----
             if params.get("swimbladder", False) and swim is not None:
                 try:
-                    swim_metrics = compute_tube_metrics(swim, spacing=spacing)
+                    swim_metrics = compute_tube_metrics(swim, spacing=spacing, mask_fish=mask_bin)
                     r["swim_area"] = swim_metrics["area"]
                     r["swim_width"] = swim_metrics["width"]
                 except Exception as exc:

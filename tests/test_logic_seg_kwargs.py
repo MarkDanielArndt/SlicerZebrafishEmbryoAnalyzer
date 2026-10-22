@@ -68,8 +68,8 @@ def test_analyse_images_passes_explicit_pipeline_kwargs(
     tmp_path, synthetic_fish_image, mock_model_paths, model_id
 ):
     """Every enabled structure gets explicit encoder + model_type from the manifest
-    (so the library's Segformer defaults are never used), local_only=True, CPU, and
-    swim bladder post-processing disabled (Core behaviour)."""
+    (all Segformer / mit_b3 now), local_only=True, CPU, and the webapp's swim
+    bladder post-processing (biggest component only, -0.73 px boundary offset)."""
     import cv2
     from ZebrafishEmbryoAnalyzerLib.model_manifest import MODEL_SETS
 
@@ -97,21 +97,60 @@ def test_analyse_images_passes_explicit_pipeline_kwargs(
     kw = mock_pipeline.call_args.kwargs
     assert kw["local_only"] is True
     assert kw["device"] == "cpu"
-    assert kw["swimbladder_biggest_only"] is False
-    assert kw["swimbladder_boundary_offset_px"] is None
+    assert kw["swimbladder_biggest_only"] is True
+    assert kw["swimbladder_boundary_offset_px"] == -0.73
     for role, prefix in (("body", "body"), ("eye", "eye"), ("edema", "edema"),
                          ("swimbladder", "swimbladder")):
-        if role == "edema" and not use_edema:
-            assert "edema_encoder_name" not in kw
-            assert "edema_model_filename" not in kw
-            continue
         entry = ms[role]
+        assert entry["encoder"] == "mit_b3" and entry["model_type"] == "Segformer"
         assert kw[f"{prefix}_encoder_name"] == entry["encoder"]
         assert kw[f"{prefix}_model_filename"] == entry["filename"]
         assert kw[f"{prefix}_model_type"] == entry.get("model_type", "Unet")
         if role != "body":
             assert kw[f"{prefix}_model_path"]
     assert kw["body_model_path"]
+    assert "edema_model_filename" in kw
+
+
+@pytest.mark.parametrize("model_id", ["fast", "general"])
+def test_analyse_images_calls_metrics_like_the_webapp(
+    tmp_path, synthetic_fish_image, mock_model_paths, model_id
+):
+    """Eye metrics get the fish mask and area_shrink_frac=0.05; swim bladder
+    metrics get the fish mask (webapp app.py)."""
+    import cv2
+    img_path = str(tmp_path / "fish.png")
+    cv2.imwrite(img_path, synthetic_fish_image)
+    fish = np.zeros((256, 256), dtype=np.uint8)
+    fish[100:150, 20:230] = 255
+    eye = np.zeros((256, 256), dtype=np.uint8)
+    eye[110:120, 30:40] = 255
+    swim = np.zeros((256, 256), dtype=np.uint8)
+    swim[115:130, 100:150] = 255
+
+    with patch("ZebrafishEmbryoAnalyzerCore.seg.segmentation_pipeline") as mock_pipeline, \
+         patch("ZebrafishEmbryoAnalyzerCore.length.load_model") as mock_load, \
+         patch("ZebrafishEmbryoAnalyzerCore.length.compute_eye_metrics",
+               return_value={"eye_area": 1.0, "eye_diameter": 1.0}) as m_eye, \
+         patch("ZebrafishEmbryoAnalyzerCore.length.compute_tube_metrics",
+               return_value={"area": 1.0, "width": 1.0}) as m_tube:
+        mock_pipeline.return_value = (
+            [synthetic_fish_image[:, :, ::-1]], [fish], [fish.copy()], [eye], [swim])
+        mock_load.return_value = MagicMock()
+        from ZebrafishEmbryoAnalyzerLib.logic import analyse_images
+        results = analyse_images(
+            [img_path],
+            {"length": False, "curvature": False, "ratio": False,
+             "eyes": True, "swimbladder": True, "hitl": False,
+             "threshold": 0.85, "um_per_px": 22.99, "model_id": model_id},
+        )
+
+    assert results[0]["error"] is None, results[0]["error"]
+    eye_call = m_eye.call_args
+    assert eye_call.kwargs["area_shrink_frac"] == 0.05
+    assert np.array_equal(eye_call.kwargs["mask_fish"], fish > 0)
+    tube_call = m_tube.call_args
+    assert np.array_equal(tube_call.kwargs["mask_fish"], fish > 0)
 
 
 # ---------------------------------------------------------------------------

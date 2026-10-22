@@ -118,9 +118,9 @@ def test_eyes_checked_eye_model_required():
         assert "curvature" in required
 
 
-@pytest.mark.parametrize("model_id", ["fast"])
+@pytest.mark.parametrize("model_id", ["fast", "general"])
 def test_edema_checked_requires_edema_where_offered(model_id):
-    """Fast has a resolution-matched edema model."""
+    """Both presets have a resolution-matched edema model."""
     with _stub_slicer_env():
         widget = _make_widget(edema_checked=True)
         required = widget._required_model_entries(model_id)
@@ -128,9 +128,12 @@ def test_edema_checked_requires_edema_where_offered(model_id):
         assert "body" in required
 
 
-def test_edema_checked_not_required_on_general():
-    """"general" has no edema model, so a stale checked state must not gate the
-    Run button on a download that could never satisfy it."""
+def test_edema_checked_not_required_when_preset_has_no_edema_model(monkeypatch):
+    """If a preset has no edema model (none currently; simulated), a stale checked
+    state must not gate the Run button on a download that could never satisfy it."""
+    from ZebrafishEmbryoAnalyzerLib.model_manifest import MODEL_SETS
+    monkeypatch.setitem(MODEL_SETS, "general",
+                        {k: v for k, v in MODEL_SETS["general"].items() if k != "edema"})
     with _stub_slicer_env():
         widget = _make_widget(edema_checked=True)
         required = widget._required_model_entries("general")
@@ -174,7 +177,18 @@ def test_fast_preset_requires_its_own_256px_entries():
         assert required["body"]["id"] == "fast_body"
         assert required["eye"]["id"] == "fast_eye"
         assert required["swimbladder"]["id"] == "fast_swimbladder"
-        assert required["edema"]["id"] == "default_edema"
+        assert required["edema"]["id"] == "fast_edema"
+        assert "curvature" in required
+
+
+def test_general_preset_requires_its_own_512px_entries():
+    """Same guard for Complex & Slower: every role, edema included, resolves to
+    the 512px weights."""
+    with _stub_slicer_env():
+        widget = _make_widget(eyes_checked=True, edema_checked=True, swimbladder_checked=True)
+        required = widget._required_model_entries("general")
+        for role in ("body", "eye", "edema", "swimbladder"):
+            assert required[role]["id"] == f"general_{role}"
         assert "curvature" in required
 
 

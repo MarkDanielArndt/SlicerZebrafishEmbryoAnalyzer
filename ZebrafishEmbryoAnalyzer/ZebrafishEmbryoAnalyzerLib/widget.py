@@ -19,13 +19,14 @@ from ZebrafishEmbryoAnalyzerLib.errors import AnalysisInputError, MRMLAdapterErr
 # Model registry — (display_label, stable_id, (body_file, encoder, eye_file))
 # ---------------------------------------------------------------------------
 
-# Display labels are the webapp's verbatim, so users recognise the same three
-# presets in both tools. The stable ids are not: they are persisted in the
+# Display labels are the webapp's preset names with the timing figures replaced
+# by relative wording (faster/slower), so users recognise the same presets in
+# both tools (Slicer offers two of the webapp's presets). The stable ids are not: they are persisted in the
 # parameter node and travel inside saved scenes, so renaming one would silently
 # reset a reloaded scene to the default preset.
 _MODEL_ENTRIES = [
-    ("Fast & Easy (256 px, ~2s/image)",     "fast",    ("best_model_body_3400_vgg19.pth", "vgg19", None)),
-    ("Complex & Slower (512 px, ~7s/image)", "general", ("best_model_body_512.pth",        "vgg19", None)),
+    ("Fast & Easy (256 px, faster)",     "fast",    ("best_model_body_256_segformer_mit_b3.pth", "mit_b3", None)),
+    ("Complex & Slower (512 px, slower)", "general", ("best_model_body_512_segformer_mit_b3.pth", "mit_b3", None)),
 ]
 _MODEL_BY_ID  = {mid: data for _, mid, data in _MODEL_ENTRIES}
 _DEFAULT_MODEL_ID = "general"
@@ -324,12 +325,11 @@ class ZebrafishEmbryoAnalyzerMainWidget:
         # created above and stays wired into settings/parameter-node sync.
         # an_layout.addWidget(self._chk_hitl)
 
-        # Shown only while the selected preset has no edema model. Disabled with
-        # an explanation rather than hidden, so the option stays discoverable and
-        # the way to reach it is stated.
+        # Shown only while the selected preset has no edema model (currently
+        # both presets have one). Disabled with an explanation rather than
+        # hidden, so the option stays discoverable.
         self._edema_hint = qt.QLabel(
-            "Edema needs a model matching the preset's resolution — available "
-            "under Fast & Easy."
+            "Edema segmentation is not available for the selected model."
         )
         self._edema_hint.setStyleSheet("color: #888; font-size: 11px;")
         self._edema_hint.setWordWrap(True)
@@ -613,7 +613,7 @@ class ZebrafishEmbryoAnalyzerMainWidget:
         return True
 
     def _update_edema_availability(self):
-        """Enable Edema only for presets that ship a resolution-matched model.
+        """Enable Edema only for presets whose model set includes an edema model.
 
         Uncheck rather than merely disable when unavailable: a checked-but-hidden
         state left over from another preset would otherwise reach the analysis
@@ -1080,7 +1080,7 @@ class ZebrafishEmbryoAnalyzerMainWidget:
             return
 
         self._deps_notice_label.setText(
-            f"{count} Python package(s) still need to be installed before an analysis "
+            f"{count} Python package(s) still need to be installed or upgraded before an analysis "
             "can run. This needs a network connection and takes a few minutes."
         )
         notice.setVisible(True)
@@ -1143,7 +1143,11 @@ class ZebrafishEmbryoAnalyzerMainWidget:
         items = []
         if missing["torch"]:
             items.append("torch + torchvision (via the PyTorch extension)")
-        items.extend(missing["general"])
+        for p in missing["general"]:
+            if p in dependency_installer.MIN_VERSIONS and dependency_installer._is_importable(p):
+                items.append(f"{p} (upgrade to >={dependency_installer.MIN_VERSIONS[p]})")
+            else:
+                items.append(p)
 
         detail = "Packages that will be installed:\n" + "\n".join(f"  • {i}" for i in items)
         if missing["torch"]:

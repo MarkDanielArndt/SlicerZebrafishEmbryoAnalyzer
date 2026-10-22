@@ -75,7 +75,7 @@ On first open you will be prompted to install:
 | Package | Purpose |
 |---------|---------|
 | `torch`, `torchvision` | ML inference — installed through the PyTorch extension, not by this one |
-| `segmentation-models-pytorch`, `timm` | Segmentation models |
+| `segmentation-models-pytorch` (>= 0.4.0), `timm` | Segmentation models. Older smp versions are upgraded automatically on the first analysis prompt |
 | `scikit-image`, `opencv-python-headless` | Image processing |
 | `huggingface_hub` | Model download |
 | `openpyxl` | Excel export |
@@ -112,7 +112,7 @@ You can also pre-download models here to skip the prompt on first run.
 
 ### Model download
 
-If you pre-downloaded models during setup, skip this. Otherwise you will be prompted when clicking **Run Analysis** with a missing model. Models are cached after the first download.
+If you pre-downloaded models during setup, skip this. Otherwise you will be prompted when clicking **Run Analysis** with a missing model. Models are cached after the first download. After updating the extension, the old model files remain in the cache folder and can be deleted manually.
 
 <img src="Documentation_images/model_download.png" width="420" alt="Model download confirmation dialog">
 
@@ -155,8 +155,14 @@ Toggle the measurements you need before running:
 You can also set a **confidence threshold** and select the inference model via
 the **Model** accordion:
 
-- **General**: the default model, suitable for standard brightfield imaging
-  conditions. Recommended as a starting point.
+- **Complex & Slower (512 px)** (`general`, the default): suitable for standard
+  brightfield imaging conditions. Recommended as a starting point.
+- **Fast & Easy (256 px)** (`fast`): quicker, lower input resolution.
+
+Both presets use the same Segformer (`mit_b3`) models as the web app for body,
+eyes, edema and swim bladder, so edema and swim bladder segmentation are
+available on both. Each preset downloads about 0.7 GB of segmentation models
+(plus the curvature classifier, about 0.35 GB, shared by both presets).
 
 ---
 

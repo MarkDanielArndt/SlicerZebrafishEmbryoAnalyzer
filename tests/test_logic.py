@@ -98,8 +98,8 @@ def test_analyse_images_computes_edema_area(tmp_path, synthetic_fish_image, mock
 
 
 @pytest.mark.parametrize("model_id,expected_size,expected_type", [
-    ("fast",    (256, 256), "Unet"),
-    ("general", (512, 512), "FPN"),
+    ("fast",    (256, 256), "Segformer"),
+    ("general", (512, 512), "Segformer"),
 ])
 def test_analyse_images_threads_preset_resolution_and_architecture(
     tmp_path, synthetic_fish_image, mock_model_paths, model_id, expected_size, expected_type
@@ -201,15 +201,20 @@ def test_analyse_images_raises_model_not_cached_when_swimbladder_missing(tmp_pat
 
 
 @pytest.mark.parametrize("entry_point", ["analyse_images", "preload_models"])
-def test_edema_on_preset_without_edema_model_raises_clearly(tmp_path, synthetic_fish_image, entry_point):
+def test_edema_on_preset_without_edema_model_raises_clearly(tmp_path, synthetic_fish_image, entry_point, monkeypatch):
     """A request asking for edema under a preset that has none must fail with an
     actionable message, not a bare KeyError and not a silently-empty column.
 
     Only reachable through an inconsistent request (the widget greys the box
-    out), but a scene saved before the role was withdrawn is exactly that."""
+    out), but a scene saved before the role was withdrawn is exactly that.
+    Both shipped presets now have an edema model, so the missing role is
+    simulated by removing it from the "general" set."""
     import cv2
     from ZebrafishEmbryoAnalyzerLib import logic
     from ZebrafishEmbryoAnalyzerLib.errors import AnalysisInputError
+    from ZebrafishEmbryoAnalyzerLib.model_manifest import MODEL_SETS
+    monkeypatch.setitem(MODEL_SETS, "general",
+                        {k: v for k, v in MODEL_SETS["general"].items() if k != "edema"})
 
     img_path = str(tmp_path / "fish.png")
     cv2.imwrite(img_path, synthetic_fish_image)

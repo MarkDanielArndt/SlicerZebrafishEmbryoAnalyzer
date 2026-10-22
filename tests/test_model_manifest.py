@@ -73,10 +73,9 @@ def test_model_entry_has_required_fields(model_id, entry):
 
 
 def test_models_has_all_expected_ids():
-    expected = {"fast_body", "fast_eye", "fast_swimbladder",
-                "general_body", "general_eye", "general_swimbladder",
-                "default_edema", "curvature"}
-    assert expected.issubset(set(MODELS.keys()))
+    expected = {f"{p}_{r}" for p in ("fast", "general")
+                for r in ("body", "eye", "edema", "swimbladder")} | {"curvature"}
+    assert set(MODELS.keys()) == expected
 
 
 def test_model_sets_has_all_presets():
@@ -93,19 +92,18 @@ def test_no_desy_preset_or_models():
 
 @pytest.mark.parametrize("variant", ["fast", "general"])
 def test_model_set_has_every_always_available_role(variant):
-    """Body, eye, curvature and swim bladder exist for every preset — the webapp
-    gates none of them, and a resolution-matched model exists for each."""
-    always = {"body", "eye", "curvature", "swimbladder"}
+    """Body, eye, curvature, edema and swim bladder exist for every preset — the
+    webapp gates none of them, and a resolution-matched model exists for each."""
+    always = {"body", "eye", "curvature", "edema", "swimbladder"}
     assert always.issubset(set(MODEL_SETS[variant].keys()))
 
 
-def test_edema_offered_only_where_resolution_matches():
-    """Edema is the one role without a model for every resolution: the repo has
-    a 256px default but no 512px general one. Rather
-    than run the 256px net at 512px the way the webapp does, "general" omits the
-    role entirely and widget.py greys the checkbox out there."""
-    assert MODEL_SETS["fast"]["edema"] is MODELS["default_edema"]
-    assert "edema" not in MODEL_SETS["general"]
+def test_edema_offered_on_both_presets_with_matching_resolution():
+    """Both presets have their own resolution-matched edema model (256px / 512px)."""
+    assert MODEL_SETS["fast"]["edema"] is MODELS["fast_edema"]
+    assert MODEL_SETS["general"]["edema"] is MODELS["general_edema"]
+    assert "_256_" in MODELS["fast_edema"]["filename"]
+    assert "_512_" in MODELS["general_edema"]["filename"]
 
 
 def test_fast_body_is_distinct_from_general_body():
@@ -124,14 +122,47 @@ def test_model_target_size_covers_every_preset():
     assert MODEL_TARGET_SIZE["general"] == (512, 512)
 
 
-def test_swimbladder_model_type_differs_between_256_and_512_presets():
-    """The 512px swim bladder models are FPN + vgg19; the 256px Fast & Easy one is
-    Unet + vgg16 (the webapp's own pipeline default). seg.py's _load_unet_model
-    branches on model_type, so getting this wrong silently builds the wrong net."""
-    assert MODELS["general_swimbladder"]["model_type"] == "FPN"
-    assert MODELS["general_swimbladder"]["encoder"] == "vgg19"
-    assert MODELS["fast_swimbladder"]["model_type"] == "Unet"
-    assert MODELS["fast_swimbladder"]["encoder"] == "vgg16"
+@pytest.mark.parametrize("variant", ["fast", "general"])
+def test_every_segmentation_role_is_segformer_mit_b3(variant):
+    """Both presets use the webapp's Segformer mit_b3 models for every
+    segmentation role. seg.py's _load_unet_model branches on model_type, so
+    getting this wrong silently builds the wrong net."""
+    for role in ("body", "eye", "edema", "swimbladder"):
+        entry = MODEL_SETS[variant][role]
+        assert entry["model_type"] == "Segformer", (variant, role)
+        assert entry["encoder"] == "mit_b3", (variant, role)
+        assert entry["revision"] == "993a5d31cb3dde4ac8af72a5cbee389e1c25f239"
+        assert entry["repo_id"] == "markdanielarndt/Zebrafish_Segmentation"
+
+
+_PINNED = {
+    "fast_body": ("best_model_body_256_segformer_mit_b3.pth", 178629809,
+                  "e4f04e97803a665839c75c70bdc75a3a89dbee28e72da1b640daf4ed2e2a2677"),
+    "general_body": ("best_model_body_512_segformer_mit_b3.pth", 178629809,
+                     "54651c627195bb7291a65fe0808992565ff74b222925efc4c810ed637074e8fc"),
+    "fast_edema": ("best_model_edema_256_segformer_mit_b3.pth", 178630403,
+                   "58ed666bb6540590ccade64027ee25fbde23bc950b6e5803a7bb8eccdecf043c"),
+    "general_edema": ("best_model_edema_512_segformer_mit_b3.pth", 178630403,
+                      "8f8f00305c2367d54dd114d0a316bdd4ad3251dae18f948cde648dbb48267ac0"),
+    "fast_eye": ("best_model_eye_256_segformer_mit_b3.pth", 178629215,
+                 "5bf80e5bb92912200614cb73d9ce3ff2c811d2441c8660c4336f6f8713a935e7"),
+    "general_eye": ("best_model_eye_512_segformer_mit_b3.pth", 178629215,
+                    "646fd95ac5dc6ecad6d4320c4349648e796b75e50b113a8f4efd023c108592e0"),
+    # "swimmbladder" (double m) is the real HF filename.
+    "fast_swimbladder": ("best_model_swimmbladder_256_segformer_mit_b3.pth", 178634561,
+                         "8e62d653da75a996eb3802465f29ba3f2d7f5255c5411954583d143f91f184dd"),
+    "general_swimbladder": ("best_model_swimmbladder_512_segformer_mit_b3.pth", 178634561,
+                            "dd785146ec5125a4bb1a038b4ef5e8a25c99076b1c4fb007d68c85b89ea1942a"),
+}
+
+
+@pytest.mark.parametrize("model_id", sorted(_PINNED))
+def test_segmentation_entries_pinned_to_hf_filename_size_and_hash(model_id):
+    filename, size, sha = _PINNED[model_id]
+    entry = MODELS[model_id]
+    assert entry["filename"] == filename
+    assert entry["size_bytes"] == size
+    assert entry["sha256"] == sha
 
 
 def test_swimbladder_entries_distinct_fast_vs_general():

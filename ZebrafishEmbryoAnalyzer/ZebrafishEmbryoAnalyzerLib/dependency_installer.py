@@ -28,6 +28,11 @@ REQUIRED_PACKAGES = [
 ZEBRAFISH_MEASURE_PACKAGE = "zebrafish-measure"
 ZEBRAFISH_MEASURE_REQUIREMENT = "--no-deps zebrafish-measure==0.2.0"
 
+# Minimum versions for packages that are importable in older releases but fail at inference.
+# Segformer (mit_b3) models need segmentation_models_pytorch >= 0.4.0, and zebrafish-measure
+# is installed with --no-deps, so pip would never enforce it for us.
+MIN_VERSIONS = {"segmentation_models_pytorch": "0.4.0"}
+
 # Detection only — provided by the PyTorch extension, never installed via pip here.
 TORCH_PACKAGES = ["torch", "torchvision"]
 
@@ -49,6 +54,26 @@ def _is_importable(name: str) -> bool:
         "segmentation_models_pytorch": "segmentation_models_pytorch",
     }.get(name, name)
     return importlib.util.find_spec(import_name) is not None
+
+
+def _too_old(name: str) -> bool:
+    """True if `name` is installed but older than MIN_VERSIONS[name].
+
+    Unreadable or unparsable versions are not flagged, to avoid false prompts.
+    """
+    import importlib.metadata
+    import re
+    try:
+        installed = importlib.metadata.version(name.replace("_", "-"))
+        def parse(v):
+            parts = v.split(".")[:3]
+            if not re.match(r"\d+", parts[0]):
+                raise ValueError(v)
+            return tuple(int(m.group()) if (m := re.match(r"\d+", p)) else 0
+                         for p in parts + ["0"] * (3 - len(parts)))
+        return parse(installed) < parse(MIN_VERSIONS[name])
+    except Exception:
+        return False
 
 
 # What each user action actually needs. Exporting a result table should not pull in a
@@ -81,7 +106,8 @@ def get_missing_packages(purpose: str = "analysis") -> dict:
     ]
     return {
         "torch":   [p for p in torch_packages   if not _is_importable(p)],
-        "general": [p for p in general_packages if not _is_importable(p)],
+        "general": [p for p in general_packages
+                    if not _is_importable(p) or (p in MIN_VERSIONS and _too_old(p))],
     }
 
 
@@ -205,6 +231,7 @@ def install_packages(missing: dict, pip_fn=None, torch_fn=None) -> str:
     downgrades it.
     """
     import slicer
+    import sys
     if slicer.app.testingEnabled():
         return "skipped"
 
@@ -248,6 +275,11 @@ def install_packages(missing: dict, pip_fn=None, torch_fn=None) -> str:
     # once lets it pick versions that fit together — including older tifffile and opencv
     # releases — instead of us chasing each transitive dependency by hand.
     requirements = [p for p in missing.get("general", []) if p != ZEBRAFISH_MEASURE_PACKAGE]
+    # An already-imported package that gets upgraded cannot be reloaded without a restart.
+    # Analysis runs in a separate worker process, so this mainly covers another extension
+    # or the Python console having imported smp already.
+    upgraded_in_memory = any(p in sys.modules for p in requirements if p in MIN_VERSIONS)
+    requirements = [f"{p}>={MIN_VERSIONS[p]}" if p in MIN_VERSIONS else p for p in requirements]
     if _numpy_must_stay_v1() and (requirements or _numpy_major() >= 2):
         requirements.append(NUMPY_TORCH_SPEC)
 
@@ -273,15 +305,16 @@ def install_packages(missing: dict, pip_fn=None, torch_fn=None) -> str:
         except Exception as exc:
             logging.exception("Failed to install zebrafish-measure: %s", exc)
             # The main call may already have replaced numpy (macOS numpy<2 path); the
-            # user must still restart Slicer in that case.
-            if _numpy_version() != numpy_before:
+            # user must still restart Slicer in that case (likewise if an already
+            # imported package was upgraded).
+            if _numpy_version() != numpy_before or upgraded_in_memory:
                 return "restart"
             return "failed"
 
     # numpy is the one package Slicer has already imported by the time we get here, so a
     # changed version is what actually forces a restart. Everything else was missing a
     # moment ago and can therefore be imported straight away.
-    if _numpy_version() != numpy_before:
+    if _numpy_version() != numpy_before or upgraded_in_memory:
         slicer.util.showStatusMessage(
             "ZebrafishEmbryoAnalyzer: dependencies installed — restart required."
         )
