@@ -79,7 +79,6 @@ On first open you will be prompted to install:
 | `scikit-image`, `opencv-python-headless` | Image processing |
 | `huggingface_hub` | Model download |
 | `openpyxl` | Excel export |
-| `pytesseract` | Scale bar text recognition |
 | `zebrafish-measure` | Analysis engine (segmentation, length, scale bar). Installed automatically with `--no-deps`, pinned to `==0.2.0`; requires Python >= 3.10 |
 
 Nothing else is installed. `numpy`, `scipy`, `pillow` and `matplotlib` are used but
@@ -137,6 +136,10 @@ All measurements are in micrometres. Set the pixel size before running analysis.
 1. Enter the **µm/px** value in the scale field, or use the **scalebar
    detection** option to have the extension read the scale from an embedded
    scalebar in the image.
+   If the automatic detection picks the wrong structure, use **Set manually
+   (click bar ends)** instead: the first image opens in the Detail tab, click
+   the start and the end of the scale bar (a further click starts over), type
+   the bar's physical length in µm and press **Apply**.
 2. Verify the scale. All measurements depend on it.
 
 ![Scale bar detected with calibration applied](Documentation_images/scale_bar.png)

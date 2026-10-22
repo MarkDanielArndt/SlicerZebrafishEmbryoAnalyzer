@@ -47,6 +47,9 @@ class DetailTab(qt.QWidget):
         self._manual_mode = False
         self._manual_points = []   # list of (row, col) in original image space
         self._params_getter = None  # set by widget after construction
+        self._calib_mode = False    # scale-bar calibration (exclusive with manual mode)
+        self._calib_points = []     # list of (row, col) in original image space
+        self._on_calibration_change = None  # callable(points, distance_px | None)
 
         # Main image viewer
         self._view = ZoomableImageView()
@@ -122,6 +125,7 @@ class DetailTab(qt.QWidget):
     # ------------------------------------------------------------------
 
     def show_result(self, index: int, results: list) -> None:
+        self._end_calibration()  # leaving the calibration preview for a result
         # Exit manual mode when navigating to a new image
         if self._manual_mode:
             self._manual_mode = False
@@ -159,6 +163,7 @@ class DetailTab(qt.QWidget):
 
     def show_raw_image(self, rgb: np.ndarray, caption: str = "") -> None:
         """Display an arbitrary RGB numpy array — used for scalebar preview."""
+        self._end_calibration()
         self._results = []
         self._current_idx = 0
         self._cache.clear()
@@ -173,6 +178,47 @@ class DetailTab(qt.QWidget):
         self._btn_next.setEnabled(False)
         self._nav_label.setText("")
         qt.QTimer.singleShot(0, self._update_display)
+
+    def start_scale_calibration(self, rgb: np.ndarray, caption: str = "") -> None:
+        """Show rgb and collect up to two taps marking the ends of the scale bar.
+
+        Exclusive with Manual Adjust. A tap after two points starts over.
+        Every change is reported through ``_on_calibration_change(points,
+        distance_px)``; distance_px is None until two points exist.
+        """
+        self.show_raw_image(rgb, caption)   # also cancels manual/calibration state
+        self._manual_status.setVisible(False)
+        self._manual_row_widget.setVisible(False)
+        self._chk_exclude.setEnabled(False)  # show_result re-enables it
+        self._current_filename = None
+        self._calib_mode = True
+        self._calib_points = []
+        self._view.set_manual_mode(True)
+
+    def cancel_scale_calibration(self) -> None:
+        """Leave calibration mode and remove its dots."""
+        self._end_calibration()
+
+    def _end_calibration(self) -> None:
+        """Drop calibration state (no-op when not calibrating) and tell the widget."""
+        was_active = bool(getattr(self, "_calib_mode", False)) or bool(
+            getattr(self, "_calib_points", None))
+        self._calib_mode = False
+        self._calib_points = []
+        if was_active:
+            self._view.set_manual_mode(False)
+            self._view.clear_dots()
+            self._notify_calibration()
+
+    def _notify_calibration(self) -> None:
+        cb = getattr(self, "_on_calibration_change", None)
+        if not callable(cb):
+            return
+        pts = list(self._calib_points)
+        dist = None
+        if len(pts) == 2:
+            dist = float(np.hypot(pts[1][0] - pts[0][0], pts[1][1] - pts[0][1]))
+        cb(pts, dist)
 
     def invalidate_cache(self):
         """Call after a new batch run so stale pixmaps are discarded."""
@@ -191,6 +237,7 @@ class DetailTab(qt.QWidget):
         self._current_idx = 0
         self._current_filename = None
         self._full_pixmap = None
+        self._end_calibration()
         self._manual_mode = False
         self._manual_points = []
         self._view.show_placeholder("Select an image from the Gallery.")
@@ -270,6 +317,7 @@ class DetailTab(qt.QWidget):
         """Enter tap mode to place head/tail points."""
         if not self._results:
             return
+        self._end_calibration()
         self._manual_mode = True
         self._manual_points = []
         self._manual_status.setText("Click HEAD point (1/2)")
@@ -301,6 +349,9 @@ class DetailTab(qt.QWidget):
 
     def _on_image_tap(self, row: int, col: int) -> None:
         """Called by ZoomableImageView tap handler with pre-mapped (row, col) coords."""
+        if getattr(self, "_calib_mode", False):
+            self._on_calibration_tap(row, col)
+            return
         if not self._manual_mode:
             return
 
@@ -317,6 +368,17 @@ class DetailTab(qt.QWidget):
             self._view.set_manual_mode(False)
             self._manual_status.setText("Computing…")
             qt.QTimer.singleShot(0, self._apply_correction)
+
+    def _on_calibration_tap(self, row: int, col: int) -> None:
+        if len(self._calib_points) >= 2:
+            self._calib_points = []     # third tap: start over
+            self._view.clear_dots()
+        self._calib_points.append((row, col))
+        self._view.add_dot(
+            row, col,
+            qt.QColor(0, 220, 0) if len(self._calib_points) == 1 else qt.QColor(220, 0, 0)
+        )
+        self._notify_calibration()
 
     def _apply_correction(self):
         """Apply 2-point manual correction to current result and refresh."""

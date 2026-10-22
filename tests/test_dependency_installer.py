@@ -76,8 +76,8 @@ def test_scalebar_needs_only_vision_packages(monkeypatch):
                         lambda n: False)
     result = get_missing_packages("scalebar")
     assert result["torch"] == []
-    assert set(result["general"]) == {"opencv-python-headless", "pytesseract",
-                                      "scikit-image", "zebrafish-measure"}
+    assert set(result["general"]) == {"opencv-python-headless", "scikit-image",
+                                      "zebrafish-measure"}
 
 
 def test_scalebar_reports_zebrafish_measure_missing_when_absent(monkeypatch):
