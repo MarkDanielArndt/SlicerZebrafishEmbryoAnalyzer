@@ -4,6 +4,7 @@ Logic layer for the ZebrafishEmbryoAnalyzer Slicer extension.
 Wraps ZebrafishEmbryoAnalyzerCore functions and provides a clean public API:
   - analyse_images()   — batch segmentation + measurements
   - detect_scalebar()  — thin wrapper around core scalebar
+  - calibrate_scale_from_points() — manual scale from two clicked bar ends
 
 ZebrafishEmbryoAnalyzerCore and ZebrafishEmbryoAnalyzerLib import as packages because Slicer
 puts the module directory on sys.path; no path manipulation here.
@@ -232,6 +233,61 @@ def detect_scalebar(image_path: str, label_um: float | None = None) -> dict:
                 "message": "Could not read image."}
     img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
     return _detect_scalebar(img_rgb, label_um=label_um)
+
+
+_SCALE_MIN_UM_PER_PX = 0.001   # same range as the µm/px field / run_analysis
+_SCALE_MAX_UM_PER_PX = 9999.0
+
+
+def calibrate_scale_from_points(image_path: str, p1_rc, p2_rc, bar_um) -> dict:
+    """
+    Compute µm/px from two manually clicked scale-bar ends.
+
+    p1_rc, p2_rc are (row, col) in original-image pixels (as delivered by the
+    image viewer); bar_um is the physical bar length in µm.  Never raises:
+    returns {success, scale_um_per_px, bar_length_px, message}.
+    """
+    import math
+
+    def _fail(message, bar_px=None):
+        return {"success": False, "scale_um_per_px": None,
+                "bar_length_px": bar_px, "message": message}
+
+    try:
+        bar_um = float(bar_um)
+    except (TypeError, ValueError):
+        return _fail("Enter the physical bar length (µm) as a number.")
+    if not math.isfinite(bar_um) or bar_um <= 0:
+        return _fail("The physical bar length must be a positive number.")
+    try:
+        (r1, c1), (r2, c2) = p1_rc, p2_rc
+        pt1 = (float(c1), float(r1))   # (row, col) -> (x, y)
+        pt2 = (float(c2), float(r2))
+    except (TypeError, ValueError):
+        return _fail("Two valid points are required.")
+    try:
+        import cv2  # deferred: heavy compiled extension, only needed at call time
+        from ZebrafishEmbryoAnalyzerCore.scalebar import calibrate_from_endpoints
+        img_bgr = cv2.imread(image_path)
+        if img_bgr is None:
+            return _fail("Could not read image.")
+        h, w = img_bgr.shape[:2]
+        res = calibrate_from_endpoints(pt1, pt2, (h, w), label_um=bar_um)
+    except Exception as exc:  # never raise into the GUI
+        return _fail(f"Manual calibration failed: {exc}")
+    if not res.get("bar_found", True):
+        return _fail(res.get("message") or "Endpoints are too close together.")
+    scale = res.get("scale_um_per_px")
+    bar_px = res.get("bar_length_px")
+    if not res.get("success") or scale is None:
+        return _fail(res.get("message") or "Calibration failed.", bar_px)
+    if not (_SCALE_MIN_UM_PER_PX <= scale <= _SCALE_MAX_UM_PER_PX):
+        return _fail(
+            f"Resulting scale {scale:.4g} µm/px is outside the allowed range "
+            f"({_SCALE_MIN_UM_PER_PX} to {_SCALE_MAX_UM_PER_PX}). "
+            "Check the clicked points and the bar length.", bar_px)
+    return {"success": True, "scale_um_per_px": float(scale),
+            "bar_length_px": float(bar_px), "message": res.get("message", "")}
 
 
 def analyse_images(image_paths: list, params: dict,
