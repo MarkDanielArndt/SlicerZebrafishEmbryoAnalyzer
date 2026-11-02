@@ -379,6 +379,13 @@ class DetailTab(qt.QWidget):
             qt.QColor(0, 220, 0) if len(self._calib_points) == 1 else qt.QColor(220, 0, 0)
         )
         self._notify_calibration()
+        if len(self._calib_points) == 2:
+            p1, p2 = self._calib_points
+            dist = float(np.hypot(p2[0] - p1[0], p2[1] - p1[1]))
+            try:
+                self._view.set_measure_line(p1, p2, f"{dist:.1f} px")
+            except Exception:
+                pass    # visual feedback only; must not block calibration
 
     def _apply_correction(self):
         """Apply 2-point manual correction to current result and refresh."""

@@ -328,6 +328,54 @@ def test_detail_calibration_collects_two_taps_and_reports_distance():
     """)
 
 
+def test_detail_calibration_draws_measure_line_on_second_tap():
+    _detail("""
+        d.start_scale_calibration(rgb)
+        d._on_image_tap(0, 0)
+        d._view.set_measure_line.assert_not_called()
+        d._on_image_tap(3, 4)
+        d._view.set_measure_line.assert_called_once_with((0, 0), (3, 4), "5.0 px")
+        # third tap restarts: dots cleared, no new line until second new point
+        d._view.clear_dots.reset_mock()
+        d._on_image_tap(7, 7)
+        d._view.clear_dots.assert_called_once()
+        assert d._view.set_measure_line.call_count == 1
+        d._on_image_tap(7, 10)
+        assert d._view.set_measure_line.call_count == 2
+        assert d._view.set_measure_line.call_args[0][2] == "3.0 px"
+        print("OK")
+    """)
+
+
+def test_detail_calibration_survives_measure_line_failure():
+    _detail("""
+        d.start_scale_calibration(rgb)
+        d._view.set_measure_line.side_effect = RuntimeError("qt boom")
+        d._on_image_tap(1, 2)
+        d._on_image_tap(4, 6)
+        assert d._calib_points == [(1, 2), (4, 6)], d._calib_points
+        assert events[-1] == ([(1, 2), (4, 6)], 5.0), events
+        print("OK")
+    """)
+
+
+def test_cap_segments_geometry():
+    _detail("""
+        from ZebrafishEmbryoAnalyzerLib.zoom_view import _cap_segments
+        # horizontal line (same row): ticks are vertical, centred on each end
+        a, b = _cap_segments((5, 0), (5, 10), 2)
+        assert a == ((0.0, 3.0), (0.0, 7.0)) or a == ((0.0, 7.0), (0.0, 3.0)), a
+        assert abs(b[0][0] - 10) < 1e-9 and abs(b[1][0] - 10) < 1e-9
+        assert abs(abs(b[1][1] - b[0][1]) - 4) < 1e-9
+        # diagonal: tick length 2*half_len, perpendicular to the line
+        (x1, y1), (x2, y2) = _cap_segments((0, 0), (3, 4), 5)[0]
+        assert abs(((x2 - x1) ** 2 + (y2 - y1) ** 2) ** 0.5 - 10) < 1e-9
+        assert abs((x2 - x1) * 4 + (y2 - y1) * 3) < 1e-9
+        assert _cap_segments((2, 2), (2, 2), 5) == []
+        print("OK")
+    """)
+
+
 def test_detail_manual_adjust_cancels_calibration():
     _detail("""
         d.start_scale_calibration(rgb)
