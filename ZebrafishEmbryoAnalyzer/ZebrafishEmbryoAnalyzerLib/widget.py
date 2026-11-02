@@ -71,6 +71,8 @@ class ZebrafishEmbryoAnalyzerMainWidget:
         self._results = []
         self._excluded = set()
         self._image_paths = []
+        self._scale_points = []   # manual scale-bar ends, (row, col) in original pixels
+        self._calib_prompt_active = False  # status shows the calibration prompt/point count
         self._current_detail_idx = 0
         self._updatingGUIFromParameterNode = False
         self._on_settings_changed = None  # callable set by ZebrafishEmbryoAnalyzerWidget
@@ -274,6 +276,9 @@ class ZebrafishEmbryoAnalyzerMainWidget:
         self._btn_detect_scale = qt.QPushButton("Auto-detect from first image")
         sc_layout.addWidget(self._btn_detect_scale)
 
+        self._btn_manual_scale = qt.QPushButton("Set manually (click bar ends)")
+        sc_layout.addWidget(self._btn_manual_scale)
+
         self._scale_status = qt.QLabel("Load images first.")
         self._scale_status.setWordWrap(True)
         self._scale_status.setStyleSheet("color: #888; font-size: 11px;")
@@ -441,6 +446,7 @@ class ZebrafishEmbryoAnalyzerMainWidget:
             on_exclude_change=self._on_exclude_change,
         )
         self._detail._params_getter = self._get_correction_params
+        self._detail._on_calibration_change = self._on_scale_points_changed
         self._tabs.addTab(self._detail, "Detail")
 
         from ZebrafishEmbryoAnalyzerLib.results_tab import ResultsTab
@@ -451,6 +457,7 @@ class ZebrafishEmbryoAnalyzerMainWidget:
         self._btn_folder.clicked.connect(self._on_load_folder)
         self._btn_files.clicked.connect(self._on_load_files)
         self._btn_detect_scale.clicked.connect(self._on_detect_scale)
+        self._btn_manual_scale.clicked.connect(self._on_manual_scale)
         self._btn_apply_scale.clicked.connect(self._on_apply_scale)
         self._btn_run.clicked.connect(self._on_run)
         self._btn_install_deps.clicked.connect(self._on_install_deps_clicked)
@@ -524,6 +531,7 @@ class ZebrafishEmbryoAnalyzerMainWidget:
                 pass
         import os
         self._image_paths = paths
+        self._scale_points = []
 
         stubs = []
         for p in paths:
@@ -721,14 +729,88 @@ class ZebrafishEmbryoAnalyzerMainWidget:
             )
             self._tabs.setCurrentIndex(1)
 
+    def _on_manual_scale(self):
+        """Show the first image in the Detail tab and collect the two bar ends."""
+        if not self._image_paths:
+            self._scale_status.setText("Load images first.")
+            return
+        if not self.ensure_dependencies("scalebar"):
+            return
+        import cv2
+        img_bgr = cv2.imread(self._image_paths[0])
+        if img_bgr is None:
+            self._scale_status.setText("Could not read image.")
+            self._scale_status.setStyleSheet("color: #F44336;")
+            return
+        self._scale_points = []
+        self._detail.start_scale_calibration(
+            cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB),
+            "Click the start and end of the scale bar. A further click starts over.",
+        )
+        self._tabs.setCurrentIndex(1)
+        self._scale_status.setText("Click the start and end of the scale bar")
+        self._scale_status.setStyleSheet("color: #FFC107;")
+        self._calib_prompt_active = True
+
+    def _on_scale_points_changed(self, points, distance_px):
+        """Callback from the Detail tab: the clicked scale-bar ends changed."""
+        self._scale_points = list(points)
+        if not points:
+            # Calibration ended (cancelled/cleared by navigation, reset, ...).
+            # Only overwrite the status while it still shows the calibration
+            # prompt, so the result of a completed Apply is not clobbered.
+            if getattr(self, "_calib_prompt_active", False):
+                self._calib_prompt_active = False
+                self._scale_status.setText("Manual calibration cancelled.")
+                self._scale_status.setStyleSheet("color: #9E9E9E;")
+            return
+        self._calib_prompt_active = True
+        if distance_px is not None:
+            self._scale_status.setText(
+                f"{distance_px:.1f} px. Enter the bar length (µm) + click Apply."
+            )
+            self._scale_status.setStyleSheet("color: #FFC107;")
+        elif len(points) == 1:
+            self._scale_status.setText("Click the end of the scale bar")
+            self._scale_status.setStyleSheet("color: #FFC107;")
+
     def _on_apply_scale(self):
         text = self._bar_um_edit.text.strip()
-        if not text or not self._image_paths:
+        if not self._image_paths:
+            return
+        if len(self._scale_points) != 2 and (
+                getattr(self._detail, "_calib_mode", False)
+                or len(self._scale_points) == 1):
+            # Half-finished manual calibration: do not silently auto-detect.
+            self._scale_status.setText("Click both ends of the scale bar first.")
+            self._scale_status.setStyleSheet("color: #FFC107;")
+            return
+        if not text:
+            if len(self._scale_points) == 2:
+                self._scale_status.setText("Enter the physical bar length (µm).")
+                self._scale_status.setStyleSheet("color: #FFC107;")
             return
         try:
             label_um = float(text)
         except ValueError:
             self._scale_status.setText("Invalid value — enter a number.")
+            return
+        if len(self._scale_points) == 2:
+            p1, p2 = self._scale_points
+            result = self._logic.calibrate_scale_from_points(
+                self._image_paths[0], p1, p2, label_um
+            )
+            self._calib_prompt_active = False
+            if result.get("success"):
+                self._um_per_px.value = result["scale_um_per_px"]
+                self._scale_status.setText(
+                    f"Manual: {result['bar_length_px']:.1f} px = {label_um:g} µm"
+                    f" → {result['scale_um_per_px']:.4f} µm/px"
+                )
+                self._scale_status.setStyleSheet("color: #4CAF50;")
+            else:
+                self._scale_status.setText(result.get("message") or "Calibration failed.")
+                self._scale_status.setStyleSheet("color: #F44336;")
             return
         result = self._logic.detect_scalebar(self._image_paths[0], label_um=label_um)
         if result.get("success"):
@@ -736,6 +818,12 @@ class ZebrafishEmbryoAnalyzerMainWidget:
             self._scale_status.setText(
                 f"Applied: {result['scale_um_per_px']:.4f} µm/px"
             )
+            self._scale_status.setStyleSheet("color: #4CAF50;")
+        else:
+            self._scale_status.setText(
+                result.get("message") or "Scale bar not detected."
+            )
+            self._scale_status.setStyleSheet("color: #F44336;")
 
     def _on_run(self):
         if not self.ensure_dependencies("analysis"):
@@ -949,7 +1037,7 @@ class ZebrafishEmbryoAnalyzerMainWidget:
             self._try_update_mrml_segmentation(self._results[index])
 
     def _navigate_detail(self, delta: int):
-        if not self._results:
+        if not self._results or getattr(self._detail, "_calib_mode", False):
             return
         idx = max(0, min(len(self._results) - 1, self._current_detail_idx + delta))
         if idx != self._current_detail_idx:
@@ -1219,6 +1307,7 @@ class ZebrafishEmbryoAnalyzerMainWidget:
         self._cancel_workers()
         self._results = []
         self._image_paths = []
+        self._scale_points = []
         self._excluded = set()
         self._detail.reset()
         self._gallery.populate([])

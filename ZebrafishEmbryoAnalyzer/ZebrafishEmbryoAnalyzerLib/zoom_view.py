@@ -37,6 +37,21 @@ def _minimap_viewport_rect(
     return (rx, ry, rw, rh)
 
 
+def _cap_segments(p1, p2, half_len):
+    """End-cap ticks perpendicular to p1-p2, as ((x1, y1), (x2, y2)) per end.
+
+    Points are (row, col); segments are in scene coords (x=col, y=row).
+    Returns [] for a zero-length line. Pure math.
+    """
+    dr, dc = p2[0] - p1[0], p2[1] - p1[1]
+    n = (dr * dr + dc * dc) ** 0.5
+    if n == 0:
+        return []
+    # unit perpendicular in scene coords: direction (dc, dr) rotated 90 deg
+    px, py = -dr / n * half_len, dc / n * half_len
+    return [((p[1] - px, p[0] - py), (p[1] + px, p[0] + py)) for p in (p1, p2)]
+
+
 # ---------------------------------------------------------------------------
 # _MinimapOverlay
 # ---------------------------------------------------------------------------
@@ -255,6 +270,26 @@ class ZoomableImageView(qt.QGraphicsView):
         brush = qt.QBrush(qt.QColor(color.red(), color.green(), color.blue(), 180))
         item = self._scene.addEllipse(col - 8, row - 8, 16, 16, pen, brush)
         self._dot_items.append(item)
+
+    def set_measure_line(self, p1, p2, label: str) -> None:
+        """Draw a line with end-cap ticks and a text label between two
+        (row, col) points. Items are tracked in _dot_items (see clear_dots)."""
+        color = qt.QColor(255, 220, 0)
+        pen = qt.QPen(color, 2)
+        pen.setCosmetic(True)       # constant on-screen width under zoom
+        line = self._scene.addLine(p1[1], p1[0], p2[1], p2[0], pen)
+        self._dot_items.append(line)
+        line.setZValue(10)
+        for (x1, y1), (x2, y2) in _cap_segments(p1, p2, 10):
+            cap = self._scene.addLine(x1, y1, x2, y2, pen)
+            self._dot_items.append(cap)
+            cap.setZValue(10)
+        text = self._scene.addSimpleText(label)
+        self._dot_items.append(text)
+        text.setBrush(qt.QBrush(color))
+        text.setFlag(qt.QGraphicsItem.ItemIgnoresTransformations, True)
+        text.setPos((p1[1] + p2[1]) / 2 + 6, (p1[0] + p2[0]) / 2 + 6)
+        text.setZValue(11)
 
     def clear_dots(self) -> None:
         """Remove all correction dots from scene."""

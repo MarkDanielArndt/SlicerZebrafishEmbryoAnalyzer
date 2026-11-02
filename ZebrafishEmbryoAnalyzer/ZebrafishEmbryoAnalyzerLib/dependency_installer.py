@@ -16,7 +16,6 @@ REQUIRED_PACKAGES = [
     "opencv-python-headless",
     "huggingface_hub",
     "openpyxl",
-    "pytesseract",
     "zebrafish-measure",
 ]
 
@@ -87,7 +86,7 @@ PACKAGES_FOR_PURPOSE = {
     "images":   ["opencv-python-headless"],
     # detect_scalebar goes through the Core shim to zebrafish_measure.scalebar, whose
     # package __init__ also imports .length (needs scikit-image).
-    "scalebar": ["opencv-python-headless", "pytesseract", "scikit-image",
+    "scalebar": ["opencv-python-headless", "scikit-image",
                  "zebrafish-measure"],
     "excel":    ["openpyxl"],
 }
